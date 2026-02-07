@@ -1,0 +1,83 @@
+## OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+## IDE / Project Files
+.vscode/
+.idea/
+*.code-workspace
+
+## C++ Build Artifacts
+build/
+cmake-build-*/
+bin/
+lib/
+obj/
+*.o
+*.obj
+*.so
+*.a
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+*.stackdump
+*.pch
+*.pdb
+*.mod
+*.smod
+*.dSYM/
+
+## C++ Coverage / Profiling
+*.gcno
+*.gcda
+*.gcov
+*.profraw
+*.profdata
+
+## LaTeX Auxiliary Files
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.idx
+*.ilg
+*.ind
+*.lof
+*.log
+*.lot
+*.out
+*.toc
+*.run.xml
+*.synctex.gz
+*.synctex(busy)
+*.fdb_latexmk
+*.fls
+*.xdv
+*.dvi
+*.nav
+*.snm
+*.vrb
+texput.log
+
+## LaTeX Glossaries / Acronyms
+*.acn
+*.acr
+*.alg
+*.glg
+*.glo
+*.gls
+*.glsdefs
+*.ist
+
+## LaTeX Minted / Listings
+_minted*/
+*.pyg
+
+## Generated Outputs
+*.ps
+*.pdf
