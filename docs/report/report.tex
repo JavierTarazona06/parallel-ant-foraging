@@ -94,7 +94,7 @@
   \colorbox{formalshade}%
 }%
 \MakeFramed{\advance\hsize-\width\FrameRestore}%
-\noindent\hspace{-4.55pt}%
+\hspace{-4.55pt}%
 \begin{adjustwidth}{}{7pt}%
 \vspace{4pt}%
 }{%
@@ -116,19 +116,19 @@
     \includegraphics[width=0.6\textwidth]{imgs/logo_ensta_2025.jpg}\par\vspace{0.5cm}
     
     \vspace{0.5cm}
-    {\Large Apprentissage efficace pour une classification rapide \par}
+    {\Large Systèmes parallèles et distribués  \par}
     \vspace{0.2cm}
-    {\huge\bfseries Projet : CIFAR10 Inference Acceleration \par}
+    {\huge\bfseries Projet : Parallel Ant Foraging \par}
     \vspace{3cm}
     {\Large Javier andres TARAZONA JIMENEZ \par}
     {\Large Jose Daniel CHACON \par}
     {\Large  \par}
     \vspace{1.5cm}
-    \textbf{Encadrant :} Adrien CHAN HON TONG \par
+    \textbf{Encadrant :} JUVIGNY Xavier \par
     \vfill
     École Nationale Supérieure des Techniques Avancées (ENSTA)\\
     Majeure STIC\\
-    Janvier 2026 \par
+    Mars 2026 \par
 \end{titlepage}
 
 % ====================================================
@@ -145,6 +145,137 @@
 % ====================================================
 
 \section{Introduction}
+
+\section{Analyse du problème}
+
+\subsection{Objectifs de la simmulation}
+
+L'objectif principal de la simulation est de modéliser le problème de fourragement d'une colonie de fourmis 
+artificielles sur un terrain 2D hétérogène, afin d'identifier des trajets efficaces entre la fourmilière et 
+une source de nourriture. Le cadre retenu suit un modèle d'intelligence en essaim où des agents simples 
+produisent un comportement collectif émergent à partir de règles locales.
+
+
+Le modèle vise à reproduire une coordination indirecte entre agents via deux types de phéromones : un 
+phéromone d'exploration vers la nourriture ($V_1$) et un phéromone de retour vers le nid ($V_2$). Chaque 
+fourmi évolue avec deux états (\textit{unloaded}/\textit{loaded}) et applique une politique 
+exploration--exploitation pilotée par le paramètre $\varepsilon$, avec des transitions d'état lors de 
+l'arrivée sur la nourriture ou sur la fourmilière.
+
+
+L'environnement a pour objectif de représenter une difficulté de déplacement réaliste : chaque cellule de la 
+carte possède un coût de traversée dans $[0,1]$, et les zones non franchissables sont traitées comme obstacles. 
+Le paysage est généré de manière fractale afin d'introduire des gradients de difficulté non uniformes et de 
+contraindre la dynamique des déplacements.
+
+
+Enfin, la simulation poursuit un objectif d'évaluation fonctionnelle au niveau de la colonie : la quantité 
+de nourriture rapportée au nid sert d'indicateur global de performance. Ce cadre constitue la base 
+expérimentale du projet, avant les étapes d'optimisation algorithmique (vectorisation et parallélisation)
+ décrites dans le contexte général.
+
+\subsection{État de l'art}
+
+
+L'implémentation actuelle initialise d'abord l'environnement dans \texttt{fractal\_land.cpp} en construisant
+ une carte fractale par raffinement récursif de sous-grilles. Dans \texttt{ant\_simu.cpp}, cette carte est 
+ ensuite normalisée pour ramener les altitudes dans l'intervalle $[0,1]$, ce qui fixe le coût de déplacement
+  utilisé par les fourmis pendant la simulation.
+
+
+La population est ensuite instanciée avec un nombre fixe de fourmis, des positions initiales pseudo-aléatoires
+ et des paramètres globaux du modèle (\textit{exploration}, \textit{bruit}, \textit{évaporation}). La structure
+  \texttt{pheronome} (dans \texttt{pheronome.hpp}) maintient deux valeurs de phéromones par cellule, un tampon
+   de mise à jour, ainsi que des bordures fantômes marquées à \(-1\) pour empêcher les traversées hors domaine.
+
+
+À chaque itération, la boucle principale de \texttt{ant\_simu.cpp} traite les événements SDL puis exécute 
+\texttt{advance\_time}. Cette routine appelle \texttt{ant::advance} pour chaque agent, applique 
+l'évaporation globale des phéromones (\texttt{do\_evaporation}) puis valide l'état suivant de la carte
+ (\texttt{update}). L'évolution individuelle d'une fourmi, définie dans \texttt{ant.cpp}, combine un 
+ choix local de voisin (aléatoire ou guidé par le maximum de phéromone), l'accumulation d'un budget de 
+ mouvement (\texttt{consumed\_time < 1}), le marquage local des phéromones et la mise à jour de l'état 
+ chargé/non chargé.
+
+
+Le rendu de l'état simulé est assuré par \texttt{renderer.cpp} et \texttt{window.cpp}. Le rendu affiche 
+le terrain, la position des fourmis, la distribution des deux phéromones et la courbe de nourriture cumulée. 
+La couche fenêtre/renderer SDL est construite avec mécanismes de repli (\textit{fallback}) pour conserver 
+l'exécution même lorsque certaines options matérielles ne sont pas disponibles.
+
+
+
+\subsection{Profilage et identification des goulots d'étranglement}
+
+\noindent
+Le profilage a pour objectif d'isoler les coûts dominants de la simulation avant toute
+optimisation, en particulier avant les étapes de vectorisation et de parallélisation.
+Nous presentons ici la définition des
+blocs à mesurer, instrumentation temporelle, protocole d'exécution reproductible et
+structure des résultats attendus. Cette section décrit donc la méthode de profilage et les
+objets techniques mobilisés, sans présenter de résultats chiffrés.
+
+\begin{table}[H]
+\centering
+\caption{Découpage des parties mesurées pour le profilage de la simulation}
+\begin{tabularx}{\textwidth}{@{}l l X l@{}}
+\toprule
+\textbf{ID} & \textbf{Nature} & \textbf{Rôle} & \textbf{Périmètre} \\
+\midrule
+P0 & Initialisation & Génération fractale du terrain & One-shot (démarrage) \\
+P1 & Initialisation & Normalisation des coûts du terrain & One-shot (démarrage) \\
+P2 & Initialisation & Création et placement de la population & One-shot (démarrage) \\
+K0 & Noyau simulation & Coût total du noyau par itération & Itératif \\
+K1 & Noyau simulation & Avance globale de toutes les fourmis & Itératif \\
+K2 & Noyau simulation & Logique interne hors marquage phéromones & Itératif \\
+K3 & Noyau simulation & Marquage local des phéromones & Itératif \\
+K4 & Noyau simulation & Évaporation globale des phéromones & Itératif \\
+K5 & Noyau simulation & Validation/swap de la carte de phéromones & Itératif \\
+R0 & Rendu SDL & Affichage (terrain, fourmis, phéromones, courbe) & Itératif, hors noyau \\
+E0 & Événements SDL & Traitement de \texttt{SDL\_PollEvent} & Itératif, hors noyau \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+Les relations structurelles utilisées pour l'analyse des goulots sont explicites:
+\[
+K0 = K1 + K4 + K5
+\]
+\[
+K1 = K2 + K3 + \text{reste}(K1)
+\]
+Les blocs \(P0\), \(P1\) et \(P2\) sont des coûts \textit{one-shot} d'initialisation et ne doivent
+pas être mélangés aux métriques par itération. Les blocs \(R0\) (rendu SDL) et \(E0\)
+(gestion des événements SDL) sont mesurés séparément et traités comme non parallélisables
+dans l'analyse du noyau de calcul.
+
+\noindent
+La stratégie instrumentale côté C++ s'appuie sur \texttt{timing\_profile.hpp} et
+\texttt{timing\_profile.cpp}. Le fichier \texttt{timing\_profile.cpp} instancie l'état global de
+profilage (\texttt{g\_timing\_profile\_totals}, \texttt{g\_timing\_profile\_enabled}), tandis que
+\texttt{timing\_profile.hpp} 
+fournit l'horloge monotone \\
+(\texttt{profile\_now\_ns}) 
+et les
+accumulateurs fins (\texttt{profile\_add\_k2}, \texttt{profile\_add\_k3}). L'accumulation des
+durées est effectuée bloc par bloc dans la boucle benchmark du simulateur, ce qui permet de
+séparer coûts d'initialisation, coûts noyau et coûts hors noyau.
+
+\noindent
+L'automatisation est assurée par \texttt{scripts/measure\_temps.sh}. Le pipeline suit une
+séquence reproductible: compilation release, puis 5 répétitions d'exécution avec 1200
+itérations par répétition, 200 itérations de \textit{warm-up} exclues et 1000 itérations
+effectivement mesurées, en configuration \texttt{OMP\_NUM\_THREADS=1}. Le script consolide les
+artefacts méthodologiques (\texttt{raw\_measurements.csv}, \texttt{init\_times.csv},
+\texttt{table\_a.csv}, \texttt{table\_b.csv}, \texttt{amdahl\_prediction.csv},
+\texttt{summary.md}) afin de préparer la lecture des goulots.
+
+\noindent
+La méthode de lecture priorise les métriques \texttt{ms/iter} et \% noyau pour identifier les
+\textit{hotspots} dominants. Les conclusions doivent d'abord cibler les blocs du noyau
+\((K0\text{--}K5)\), puis isoler l'impact des composants hors noyau \((R0,E0)\) pour éviter
+les biais d'interprétation.
 
 
 
