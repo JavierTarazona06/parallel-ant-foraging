@@ -1,80 +1,80 @@
-# Instrucciones de ejecución - Medición de tiempos (puntos 1 a 4)
+# Instructions d'exécution - Mesure des temps (points 1 à 4)
 
-Este documento describe cómo ejecutar la medición de tiempos del Ejercicio 4 usando `scripts/measure_temps.sh`.
+Ce document décrit comment exécuter la mesure des temps de l'Exercice 4 à l'aide de `scripts/measure_temps.sh`.
 
-## 1) Qué hace el script
+## 1) Ce que fait le script
 
-`scripts/measure_temps.sh` ejecuta automáticamente:
+`scripts/measure_temps.sh` exécute automatiquement :
 
-1. Build release (`make clean && make all`).
-2. 5 repeticiones del benchmark con:
-   - 1200 iteraciones totales.
-   - 200 iteraciones de warm-up descartadas.
-   - 1000 iteraciones medidas.
+1. Compilation en mode release (`make clean && make all`).
+2. 5 répétitions du benchmark avec :
+   - 1200 itérations totales.
+   - 200 itérations de warm-up écartées.
+   - 1000 itérations mesurées.
    - `OMP_NUM_THREADS=1`.
-3. Consolidación de resultados para los puntos 1 a 4 de `docs/task_temps_mesure.md`:
-   - Tabla A.
-   - Tabla B.
-   - Fracción paralelizable `F`.
-   - Predicción de Amdahl para `{2,4,8,16}`.
+3. Consolidation des résultats pour les points 1 à 4 de `docs/task_temps_mesure.md` :
+   - Tableau A.
+   - Tableau B.
+   - Fraction parallélisable `F`.
+   - Prédiction d'Amdahl pour `{2,4,8,16}`.
 
-## 2) Ejecución
+## 2) Exécution
 
-Desde la raíz del proyecto:
+Depuis la racine du projet :
 
 ```bash
 chmod +x scripts/measure_temps.sh
 ./scripts/measure_temps.sh
 ```
 
-Opcional: cambiar el nombre de carpeta específica dentro de `results/`:
+Optionnel : changer le nom du dossier spécifique dans `results/` :
 
 ```bash
-./scripts/measure_temps.sh mi_carpeta
-./scripts/measure_temps.sh --folder mi_carpeta
+./scripts/measure_temps.sh mon_dossier
+./scripts/measure_temps.sh --folder mon_dossier
 ```
 
-Mostrar ayuda:
+Afficher l'aide :
 
 ```bash
 ./scripts/measure_temps.sh --help
 ```
 
-## 3) Ubicación de resultados
+## 3) Emplacement des résultats
 
-Por defecto, los resultados se guardan en:
+Par défaut, les résultats sont enregistrés dans :
 
 ```text
 results/test_time_measurements/<timestamp>/
 ```
 
-Además se actualiza el enlace:
+De plus, le lien est mis à jour :
 
 ```text
 results/test_time_measurements/latest
 ```
 
-## 4) Archivos generados
+## 4) Fichiers générés
 
-En la carpeta de la corrida (`<timestamp>/`) se generan:
+Dans le dossier de l'exécution (`<timestamp>/`), les fichiers suivants sont générés :
 
-- `run_config.env`: configuración de la corrida.
-- `system_info.txt`: datos de hardware/SO.
-- `build.log`: log de compilación.
-- `rep_*.metrics`: métricas crudas por repetición.
-- `rep_*.stderr`: salida de error por repetición.
-- `raw_measurements.csv`: consolidado crudo por repetición.
-- `init_times.csv`: resumen one-shot de `P0`, `P1`, `P2`.
-- `table_a.csv`: resumen Tabla A.
-- `table_b.csv`: resumen Tabla B.
-- `amdahl_prediction.csv`: speedup teórico por Amdahl.
-- `summary.md`: resumen final en formato Markdown.
+- `run_config.env`: configuration de l'exécution.
+- `system_info.txt`: informations matériel/OS.
+- `build.log`: journal de compilation.
+- `rep_*.metrics`: métriques brutes par répétition.
+- `rep_*.stderr`: sortie d'erreur standard par répétition.
+- `raw_measurements.csv`: consolidation brute par répétition.
+- `init_times.csv`: résumé one-shot de `P0`, `P1`, `P2`.
+- `table_a.csv`: résumé du tableau A.
+- `table_b.csv`: résumé du tableau B.
+- `amdahl_prediction.csv`: speedup théorique selon Amdahl.
+- `summary.md`: résumé final au format Markdown.
 
-## 5) Salida esperada en consola
+## 5) Sortie attendue dans la console
 
-El script imprime progreso en 4 pasos:
+Le script affiche l'avancement en 4 étapes :
 
-1. Build release.
-2. Ejecución de repeticiones.
-3. Generación de resumen.
-4. Ruta final de resultados.
+1. Compilation en mode release.
+2. Exécution des répétitions.
+3. Génération du résumé.
+4. Chemin final des résultats.

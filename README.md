@@ -36,3 +36,7 @@ make DEBUG=yes all
 cd ~/parallele/parallel-ant-foraging/src
 ./ant_simu.exe
 ```
+
+## Measure Execution Time
+
+See [`docs/instructions/measure_temps.md`](docs/instructions/measure_temps.md) for instructions to measure the program's execution time.
