@@ -23,6 +23,8 @@ Renderer::~Renderer() {
 void Renderer::display( Window& win, std::size_t const& compteur )
 {
     SDL_Renderer* renderer = SDL_GetRenderer( win.get() );
+    if ( renderer == nullptr )
+        return;
     
     // Créer la texture du paysage si elle n'existe pas encore
     if ( m_land == nullptr ) {
