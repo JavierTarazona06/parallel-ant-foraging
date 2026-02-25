@@ -269,7 +269,15 @@ itérations par répétition, 200 itérations de \textit{warm-up} exclues et 100
 effectivement mesurées, en configuration \texttt{OMP\_NUM\_THREADS=1}. Le script consolide les
 artefacts méthodologiques (\texttt{raw\_measurements.csv}, \texttt{init\_times.csv},
 \texttt{table\_a.csv}, \texttt{table\_b.csv}, \texttt{amdahl\_prediction.csv},
-\texttt{summary.md}) afin de préparer la lecture des goulots.
+\texttt{summary.md}) afin de préparer la lecture des goulots. Les artefacts générés sont:
+\begin{itemize}[leftmargin=*]
+    \item \texttt{raw\_measurements.csv}: mesures brutes par répétition (compteurs en ns et valeurs dérivées par itération).
+    \item \texttt{init\_times.csv}: synthèse des coûts \textit{one-shot} d'initialisation (\(P0\), \(P1\), \(P2\)).
+    \item \texttt{table\_a.csv}: métriques des blocs de profilage (moyenne, dispersion et part relative du noyau).
+    \item \texttt{table\_b.csv}: indicateurs globaux par répétition (\(T\_\text{iter}\), \(T\_\text{kernel}\), \(T\_\text{render}\), débit).
+    \item \texttt{amdahl\_prediction.csv}: valeurs théoriques de speedup issues du modèle d'Amdahl à partir de la fraction parallélisable estimée.
+    \item \texttt{summary.md}: synthèse lisible du protocole et des tableaux générés.
+\end{itemize}
 
 \noindent
 La méthode de lecture priorise les métriques \texttt{ms/iter} et \% noyau pour identifier les
