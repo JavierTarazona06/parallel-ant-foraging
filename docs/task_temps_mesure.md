@@ -17,8 +17,8 @@ Alcance de este entregable:
 | P0 | Inicialización del terreno | Tiempo one-shot de generación fractal | `src/fractal_land.cpp:26` |
 | P1 | Normalización del terreno | Tiempo one-shot de min/max + rescale | `src/ant_simu.cpp:37` |
 | P2 | Inicialización de hormigas | Tiempo one-shot de creación de la población | `src/ant_simu.cpp:54` |
-| K0 | Kernel por iteración (total) | Tiempo de `advance_time` | `src/ant_simu.cpp:11` |
-| K1 | Avance de hormigas (total) | Bucle `for` sobre todas las hormigas | `src/ant_simu.cpp:15` |
+| K0 | Kernel por iteración (total) Se ve como la suma K1 + K4 + K5 | Tiempo de `advance_time` | `src/ant_simu.cpp:11` |
+| K1 | Avance de hormigas (total) Visto como K2+K3+(resto K1) | Bucle `for` sobre todas las hormigas | `src/ant_simu.cpp:15` |
 | K2 | Lógica interna de una hormiga | Decisión + desplazamiento + estado | `src/ant.cpp:14` |
 | K3 | Marcado de feromonas | Coste de `mark_pheronome` | `src/ant.cpp:46`, `src/pheronome.hpp:73` |
 | K4 | Evaporación | Coste de `do_evaporation` | `src/pheronome.hpp:65` |
