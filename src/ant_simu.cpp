@@ -1,28 +1,28 @@
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
+#include <string>
 #include <vector>
 #include "fractal_land.hpp"
 #include "ant.hpp"
+#include "ants_soa.hpp"
 #include "pheronome.hpp"
 #include "renderer.hpp"
 #include "window.hpp"
 #include "rand_generator.hpp"
 #include "timing_profile.hpp"
 
-struct IterTimingNs {
-    std::uint64_t k1_ns{0};
-    std::uint64_t k4_ns{0};
-    std::uint64_t k5_ns{0};
-};
+enum class AntLayout { aos, soa };
 
 struct RunConfig {
     bool benchmark{false};
     std::size_t iterations{1200};
     std::size_t warmup{200};
     bool render{true};
+    AntLayout layout{AntLayout::aos};
 };
 
 struct MeasurementTotals {
@@ -42,7 +42,8 @@ struct MeasurementTotals {
 
 void print_usage(const char* exe_name)
 {
-    std::cout << "Usage: " << exe_name << " [--benchmark] [--iterations N] [--warmup N] [--no-render]\n";
+    std::cout << "Usage: " << exe_name
+              << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]\n";
 }
 
 bool parse_size_value(const char* text, std::size_t& value_out)
@@ -58,6 +59,19 @@ bool parse_size_value(const char* text, std::size_t& value_out)
     }
     value_out = static_cast<std::size_t>(parsed);
     return true;
+}
+
+bool parse_layout_value(const std::string& text, AntLayout& layout_out)
+{
+    if (text == "aos") {
+        layout_out = AntLayout::aos;
+        return true;
+    }
+    if (text == "soa") {
+        layout_out = AntLayout::soa;
+        return true;
+    }
+    return false;
 }
 
 bool parse_args(int nargs, char* argv[], RunConfig& config)
@@ -86,6 +100,20 @@ bool parse_args(int nargs, char* argv[], RunConfig& config)
         if (arg == "--warmup") {
             if (i + 1 >= nargs || !parse_size_value(argv[++i], config.warmup)) {
                 std::cerr << "Invalid value for --warmup\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--layout") {
+            if (i + 1 >= nargs || !parse_layout_value(argv[++i], config.layout)) {
+                std::cerr << "Invalid value for --layout (expected aos|soa)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--layout=", 0) == 0) {
+            if (!parse_layout_value(arg.substr(9), config.layout)) {
+                std::cerr << "Invalid value for --layout (expected aos|soa)\n";
                 return false;
             }
             continue;
@@ -168,11 +196,23 @@ int main(int nargs, char* argv[])
 
     ant::set_exploration_coef(eps);
     std::uint64_t p2_start_ns = profile_now_ns();
-    std::vector<ant> ants;
-    ants.reserve(nb_ants);
+    std::vector<ant> ants_aos;
+    AntsSoA ants_soa;
     auto gen_ant_pos = [&land, &seed]() { return rand_int32(0, land.dimensions() - 1, seed); };
-    for (size_t i = 0; i < static_cast<size_t>(nb_ants); ++i)
-        ants.emplace_back(position_t{gen_ant_pos(), gen_ant_pos()}, seed);
+    if (config.layout == AntLayout::aos) {
+        ants_aos.reserve(nb_ants);
+        for (size_t i = 0; i < static_cast<size_t>(nb_ants); ++i) {
+            ants_aos.emplace_back(position_t{gen_ant_pos(), gen_ant_pos()}, seed);
+        }
+    } else {
+        ants_soa.reserve(nb_ants);
+        for (size_t i = 0; i < static_cast<size_t>(nb_ants); ++i) {
+            const std::int32_t ant_x = gen_ant_pos();
+            const std::int32_t ant_y = gen_ant_pos();
+            const std::uint32_t ant_seed = static_cast<std::uint32_t>(seed);
+            ants_soa.push_back(ant_x, ant_y, ant_seed, 0u);
+        }
+    }
     totals.p2_ns = profile_now_ns() - p2_start_ns;
 
     pheronome phen(land.dimensions(), pos_food, pos_nest, alpha, beta);
@@ -183,7 +223,11 @@ int main(int nargs, char* argv[])
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);
         if (win->is_ready()) {
-            renderer = std::make_unique<Renderer>(land, phen, pos_nest, pos_food, ants);
+            if (config.layout == AntLayout::aos) {
+                renderer = std::make_unique<Renderer>(land, phen, pos_nest, pos_food, ants_aos);
+            } else {
+                renderer = std::make_unique<Renderer>(land, phen, pos_nest, pos_food, ants_soa);
+            }
         } else {
             std::cerr << "Renderer unavailable, disabling render timing.\n";
             render_enabled = false;
@@ -208,7 +252,12 @@ int main(int nargs, char* argv[])
 
             IterTimingNs iter_timing{};
             std::uint64_t k0_start_ns = profile_now_ns();
-            advance_time(land, phen, pos_nest, pos_food, ants, food_quantity, &iter_timing);
+            if (config.layout == AntLayout::aos) {
+                advance_time(land, phen, pos_nest, pos_food, ants_aos, food_quantity, &iter_timing);
+            } else {
+                advance_time_soa(land, phen, pos_nest.x, pos_nest.y, pos_food.x, pos_food.y,
+                                 ants_soa, eps, food_quantity, &iter_timing);
+            }
             std::uint64_t k0_end_ns = profile_now_ns();
 
             if (measured) {
@@ -260,7 +309,12 @@ int main(int nargs, char* argv[])
                 if (event.type == SDL_QUIT)
                     cont_loop = false;
             }
-            advance_time(land, phen, pos_nest, pos_food, ants, food_quantity);
+            if (config.layout == AntLayout::aos) {
+                advance_time(land, phen, pos_nest, pos_food, ants_aos, food_quantity);
+            } else {
+                advance_time_soa(land, phen, pos_nest.x, pos_nest.y, pos_food.x, pos_food.y,
+                                 ants_soa, eps, food_quantity);
+            }
             if (renderer && win) {
                 renderer->display(*win, food_quantity);
                 win->blit();

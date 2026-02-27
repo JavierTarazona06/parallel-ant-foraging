@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -70,11 +71,11 @@ public:
             }
     }
 
-    void mark_pheronome( const position_t& pos ) {
-      std::size_t i = pos.x;
-      std::size_t j = pos.y;
-        assert( i >= 0 );
-        assert( j >= 0 );
+    void mark_pheronome( std::int32_t x, std::int32_t y ) {
+      assert( x >= 0 );
+      assert( y >= 0 );
+      std::size_t i = static_cast<std::size_t>(x);
+      std::size_t j = static_cast<std::size_t>(y);
         assert( i < m_dim );
         assert( j < m_dim );
         pheronome&         phen        = *this;
@@ -96,6 +97,10 @@ public:
         m_buffer_pheronome[( i + 1 ) * m_stride + ( j + 1 )][1] =
             m_alpha * std::max( {v2_left, v2_right, v2_upper, v2_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v2_left + v2_right + v2_upper + v2_bottom );
+    }
+
+    void mark_pheronome( const position_t& pos ) {
+        mark_pheronome(pos.x, pos.y);
     }
 
     void update( ) {

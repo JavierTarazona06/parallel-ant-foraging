@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstddef>
 #include <cmath> 
 
 struct RandomGenerator
@@ -24,12 +25,25 @@ struct RandomGenerator
 inline
 std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::size_t& seed )
 {
-    seed = (1664525 * seed + 1013904223) % 0xFFFFFFFF;
+    seed = static_cast<std::size_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);
     return min_val + seed % ( max_val - min_val + 1 );
 }
 
 inline double rand_double ( double min_val, double max_val, std::size_t& seed )
 {
-    seed = (1664525 * seed + 1013904223) % 0xFFFFFFFF;
+    seed = static_cast<std::size_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);
+    return min_val + std::fmod( seed, ( max_val - min_val + 1 ) );
+}
+
+inline
+std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::uint32_t& seed )
+{
+    seed = static_cast<std::uint32_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);
+    return min_val + seed % ( max_val - min_val + 1 );
+}
+
+inline double rand_double ( double min_val, double max_val, std::uint32_t& seed )
+{
+    seed = static_cast<std::uint32_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);
     return min_val + std::fmod( seed, ( max_val - min_val + 1 ) );
 }
