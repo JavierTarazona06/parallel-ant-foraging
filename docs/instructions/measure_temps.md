@@ -17,6 +17,7 @@ Ce document décrit comment exécuter la mesure des temps de l'Exercice 4 à l'a
    - Tableau B.
    - Fraction parallélisable `F`.
    - Prédiction d'Amdahl pour `{2,4,8,16}`.
+4. Séparation des sorties par layout (`aos` ou `soa`) dans des sous-dossiers dédiés.
 
 ## 2) Exécution
 
@@ -34,6 +35,15 @@ Optionnel : changer le nom du dossier spécifique dans `results/` :
 ./scripts/measure_temps.sh --folder mon_dossier
 ```
 
+Choisir le layout à mesurer :
+
+```bash
+./scripts/measure_temps.sh --layout aos
+./scripts/measure_temps.sh --layout soa
+./scripts/measure_temps.sh --folder mon_dossier --layout soa
+./scripts/measure_temps.sh mon_dossier --layout=aos
+```
+
 Afficher l'aide :
 
 ```bash
@@ -45,12 +55,13 @@ Afficher l'aide :
 Par défaut, les résultats sont enregistrés dans :
 
 ```text
-results/test_time_measurements/<timestamp>/
+results/test_time_measurements/<layout>/<timestamp>/
 ```
 
 De plus, le lien est mis à jour :
 
 ```text
+results/test_time_measurements/<layout>/latest
 results/test_time_measurements/latest
 ```
 

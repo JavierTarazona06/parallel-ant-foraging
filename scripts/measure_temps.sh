@@ -9,6 +9,7 @@ print_help() {
 Usage:
   ./scripts/measure_temps.sh [specific_folder]
   ./scripts/measure_temps.sh --folder <specific_folder>
+  ./scripts/measure_temps.sh --layout <aos|soa>
   ./scripts/measure_temps.sh -h|--help
 
 Description:
@@ -20,13 +21,16 @@ Description:
   - OMP_NUM_THREADS=1
 
 Outputs:
-  results/<specific_folder>/<timestamp>/
-  results/<specific_folder>/latest -> enlace a la ultima corrida
+  results/<specific_folder>/<layout>/<timestamp>/
+  results/<specific_folder>/<layout>/latest -> enlace a la ultima corrida de ese layout
+  results/<specific_folder>/latest -> enlace a la ultima corrida global
 EOF
 }
 
 SPECIFIC_FOLDER="test_time_measurements"
 SPECIFIC_FOLDER_SET=0
+LAYOUT="aos"
+LAYOUT_SET=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
@@ -50,6 +54,23 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       ;;
+    --layout)
+      shift
+      if [[ $# -eq 0 || -z "${1}" ]]; then
+        echo "Error: --layout requiere un valor (aos|soa)." >&2
+        exit 1
+      fi
+      LAYOUT="$1"
+      LAYOUT_SET=1
+      ;;
+    --layout=*)
+      LAYOUT="${1#*=}"
+      LAYOUT_SET=1
+      if [[ -z "${LAYOUT}" ]]; then
+        echo "Error: --layout requiere un valor (aos|soa)." >&2
+        exit 1
+      fi
+      ;;
     -*)
       echo "Error: opcion desconocida '$1'." >&2
       print_help >&2
@@ -69,9 +90,16 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if [[ "${LAYOUT}" != "aos" && "${LAYOUT}" != "soa" ]]; then
+  echo "Error: layout invalido '${LAYOUT}'. Valores permitidos: aos | soa." >&2
+  print_help >&2
+  exit 1
+fi
+
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
-OUT_DIR="${REPO_ROOT}/results/${SPECIFIC_FOLDER}/${RUN_ID}"
-LATEST_LINK="${REPO_ROOT}/results/${SPECIFIC_FOLDER}/latest"
+OUT_DIR="${REPO_ROOT}/results/${SPECIFIC_FOLDER}/${LAYOUT}/${RUN_ID}"
+LATEST_LINK_LAYOUT="${REPO_ROOT}/results/${SPECIFIC_FOLDER}/${LAYOUT}/latest"
+LATEST_LINK_GLOBAL="${REPO_ROOT}/results/${SPECIFIC_FOLDER}/latest"
 
 REPS=5
 ITERATIONS=1200
@@ -81,10 +109,12 @@ NB_ANTS=5000
 
 mkdir -p "${OUT_DIR}"
 mkdir -p "${REPO_ROOT}/results/${SPECIFIC_FOLDER}"
+mkdir -p "${REPO_ROOT}/results/${SPECIFIC_FOLDER}/${LAYOUT}"
 
 {
   echo "run_id=${RUN_ID}"
   echo "specific_folder=${SPECIFIC_FOLDER}"
+  echo "layout=${LAYOUT}"
   echo "repetitions=${REPS}"
   echo "iterations=${ITERATIONS}"
   echo "warmup=${WARMUP}"
@@ -128,13 +158,13 @@ ns_per_iter_to_ms() {
   awk -v ns="${ns_value}" -v n="${iters}" 'BEGIN { if (n > 0) printf "%.6f", (ns / 1000000.0) / n; else print "0.000000" }'
 }
 
-echo "[2/4] Running ${REPS} benchmark repetitions..."
+echo "[2/4] Running ${REPS} benchmark repetitions (layout=${LAYOUT})..."
 for rep in $(seq 1 "${REPS}"); do
   metrics_file="${OUT_DIR}/rep_${rep}.metrics"
   stderr_file="${OUT_DIR}/rep_${rep}.stderr"
 
   OMP_NUM_THREADS="${THREADS}" SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
-    "${REPO_ROOT}/src/ant_simu.exe" --benchmark --iterations "${ITERATIONS}" --warmup "${WARMUP}" \
+    "${REPO_ROOT}/src/ant_simu.exe" --benchmark --layout "${LAYOUT}" --iterations "${ITERATIONS}" --warmup "${WARMUP}" \
     > "${metrics_file}" 2> "${stderr_file}"
 
   measured_iters="$(metric_from_file measured_iterations "${metrics_file}")"
@@ -297,6 +327,7 @@ SUMMARY_MD="${OUT_DIR}/summary.md"
   echo "# Medicion de tiempos - Ejercicio 4"
   echo
   echo "- Carpeta de resultados: \`${OUT_DIR}\`"
+  echo "- Layout: ${LAYOUT}"
   echo "- Repeticiones: ${REPS}"
   echo "- Iteraciones por repeticion: ${ITERATIONS}"
   echo "- Warm-up descartado: ${WARMUP}"
@@ -331,7 +362,8 @@ SUMMARY_MD="${OUT_DIR}/summary.md"
   awk -F, 'NR>1{printf "| %s | %s |\n",$1,$2}' "${AMDAHL_CSV}"
 } > "${SUMMARY_MD}"
 
-ln -sfn "${OUT_DIR}" "${LATEST_LINK}"
+ln -sfn "${OUT_DIR}" "${LATEST_LINK_LAYOUT}"
+ln -sfn "${OUT_DIR}" "${LATEST_LINK_GLOBAL}"
 
 echo "[4/4] Done."
 echo "Results saved under: ${OUT_DIR}"
