@@ -1,0 +1,100 @@
+\section{Vectorisation}
+
+\subsection{Stratégie de Vectorisaton}
+
+\subsubsection{Motivation}
+
+Le point 5.1 de l'énoncé définit la \emph{vectorisation} comme un changement de représentation des agents :
+au lieu de manipuler une liste d'objets « fourmi », on stocke séparément les attributs (coordonnées, état,
+graine de générateur pseudo-aléatoire, etc.) dans des tableaux. Une fourmi est alors repérée uniquement par
+son indice $i$ dans ces tableaux.
+
+Cette étape est motivée par l'analyse \emph{baseline} : le bloc $K1$ (avance de l'ensemble des fourmis)
+concentre l'essentiel du temps noyau. L'objectif principal est donc d'améliorer l'efficacité mémoire de cette
+boucle (localité, cache, bande passante) afin de réduire le coût par itération, tout en préparant la suite
+(parallélisation OpenMP au point 5.2 de la consigne).
+
+\subsubsection{Du layout AoS au layout SoA}
+
+Dans la version \emph{baseline}, la population est stockée sous la forme d'un \texttt{std::vector<ant>}
+(\textit{Array of Structs}, AoS). Chaque instance \texttt{ant} regroupe plusieurs champs hétérogènes
+(position \texttt{SDL\_Point}, état, graine RNG, etc.). Lors de l'itération sur toutes les fourmis, le noyau
+lit/écrit principalement la position, l'état et la graine, mais les lignes de cache chargées contiennent aussi
+des données non nécessaires au pas courant.
+
+Nous introduisons donc un layout \textit{Structure of Arrays} (SoA), plus favorable à la localité et à la
+vectorisation au sens « données » du sujet :
+\[
+\text{AoS: } \{(x_i, y_i, s_i, g_i)\}_{i=0}^{N-1}
+\qquad\longrightarrow\qquad
+\text{SoA: } (x[\,], y[\,], s[\,], g[\,]).
+\]
+Ainsi, les accès séquentiels \texttt{x[i]}, \texttt{y[i]}, \texttt{state[i]}, \texttt{seed[i]} deviennent
+contigus en mémoire, ce qui augmente la proportion de données utiles par ligne de cache et facilite les boucles
+par indice.
+
+\subsubsection{Maintien du baseline : un binaire, deux layouts}
+
+Afin de conserver une référence expérimentale stable, le chemin AoS est maintenu et reste le mode d'exécution
+par défaut. Le programme expose un paramètre de ligne de commande permettant de choisir la représentation :
+\begin{itemize}[leftmargin=*]
+    \item \texttt{--layout aos} : exécution \emph{baseline} (\texttt{std::vector<ant>}) ;
+    \item \texttt{--layout soa} : exécution vectorisée (\texttt{AntsSoA}).
+\end{itemize}
+Ce choix « 1 binaire, 2 layouts » évite de dupliquer le projet en deux répertoires (et donc de diverger au
+fil des modifications) et garantit une comparaison directe AoS vs SoA à paramètres identiques.
+
+\subsubsection{Choix d'implémentation : types compacts et seed par fourmi}
+
+En SoA, nous stockons explicitement les attributs minimaux requis par la dynamique :
+\begin{itemize}[leftmargin=*]
+    \item \texttt{x[i]}, \texttt{y[i]} en \texttt{int32\_t} (coordonnées) ;
+    \item \texttt{state[i]} en \texttt{uint8\_t} (0 = \textit{unloaded}, 1 = \textit{loaded}) ;
+    \item \texttt{seed[i]} en \texttt{uint32\_t} (état RNG local).
+\end{itemize}
+Le choix de types compacts réduit l'empreinte mémoire par agent et améliore l'utilisation du cache, ce qui est
+particulièrement pertinent puisque la boucle $K1$ parcourt plusieurs milliers de fourmis.
+
+Un point important pour la reproductibilité est la gestion de la graine RNG par fourmi. Dans le code AoS
+\emph{baseline}, le champ \texttt{m\_seed} est utilisé dans \texttt{ant::advance} (\texttt{src/ant.cpp}) mais
+n'était pas initialisé dans le constructeur (\texttt{src/ant.hpp}), ce qui induit un \emph{comportement indéfini}
+et rend le baseline instable. La vectorisation impose de rendre cette donnée explicite : chaque fourmi possède
+sa graine \texttt{seed[i]} et les fonctions de génération aléatoire la mettent à jour par référence. Pour garder
+une comparabilité maximale, la formule du générateur est conservée ; seule l'initialisation devient correcte et
+déterministe.
+
+\subsubsection{Application dans le noyau : \texttt{advance\_time\_soa}}
+
+La version SoA introduit un noyau \texttt{advance\_time\_soa} (analogue à \texttt{advance\_time} dans
+\texttt{src/ant\_simu.cpp}) :
+\begin{enumerate}[leftmargin=*]
+    \item boucle sur $i \in [0, N)$ : avance de la fourmi $i$ en manipulant \texttt{x[i]}, \texttt{y[i]},
+    \texttt{state[i]}, \texttt{seed[i]} ;
+    \item évaporation globale des phéromones (\texttt{do\_evaporation}) ;
+    \item validation/swap de la carte de phéromones (\texttt{update}).
+\end{enumerate}
+La logique par fourmi reste volontairement identique à la version AoS (mêmes choix de voisin, mêmes branches,
+même condition de mouvement \texttt{consumed\_time < 1}) afin de comparer les performances en isolant l'effet du
+layout mémoire.
+
+\subsubsection{Découplage de \texttt{SDL\_Point} hors hot loop et adaptation du rendu}
+
+Le type \texttt{SDL\_Point} est pratique pour le rendu mais il couple le noyau de calcul à SDL. Dans la stratégie
+SoA, le noyau manipule des scalaires \texttt{int32\_t} ; la conversion vers un point SDL (si nécessaire) est
+repoussée au moment du rendu. Dans le même esprit, une surcharge \texttt{mark\_pheronome(x,y)} côté
+\texttt{pheronome} permet de marquer les phéromones sans construire un \texttt{SDL\_Point} à chaque pas.
+
+Enfin, le \texttt{Renderer} est adapté pour accepter soit une population AoS (\texttt{std::vector<ant>}), soit une
+population SoA (\texttt{AntsSoA}). Le rendu itère alors :
+\begin{itemize}[leftmargin=*]
+    \item en AoS : sur les objets et \texttt{ant.get\_position()} ;
+    \item en SoA : sur l'indice $i$ et les tableaux \texttt{x[i]/y[i]}.
+\end{itemize}
+
+\subsubsection{Validation et protocole de comparaison}
+
+La validation repose sur la compilation en mode \emph{release} puis l'exécution du mode \texttt{--benchmark} en
+forçant successivement \texttt{--layout aos} puis \texttt{--layout soa}. Le format des métriques
+\texttt{METRIC ...} est conservé afin de réutiliser le pipeline de consolidation existant
+(\texttt{scripts/measure\_temps.sh}). La comparaison se focalise sur $K1$ (et donc $K0$), puisque la vectorisation
+vise prioritairement le noyau d'avance des fourmis.
