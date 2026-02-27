@@ -68,4 +68,3 @@ See [`docs/instructions/measure_temps.md`](docs/instructions/measure_temps.md) f
 TODO:
 - Problema del comportamiento aleatorio para
 que sea uniforme continuo. Esto es necesario?
--   - (B, recomendado si se quiere automatizar) Extender `scripts/measure_temps.sh#L1` con `--layout` y registrar en `run_config.env` (manteniendo compat hacia atrás). *(Opcional, fuera del core de 5.1, pero útil para reporte).*
