@@ -1,6 +1,7 @@
 #include <limits>
 #include <algorithm>
 #include "renderer.hpp"
+#include "ants_soa.hpp"
 
 Renderer::Renderer( const fractal_land& land, const pheronome& phen, 
                     const position_t& pos_nest, const position_t& pos_food,
@@ -10,7 +11,22 @@ Renderer::Renderer( const fractal_land& land, const pheronome& phen,
         m_ref_phen( phen ),
         m_pos_nest( pos_nest ),
         m_pos_food( pos_food ),
-        m_ref_ants( ants )
+        m_ref_ants_aos( &ants ),
+        m_ref_ants_soa( nullptr )
+{
+    // Note: La texture sera créée lors du premier display() car on a besoin du renderer de la fenêtre
+}
+
+Renderer::Renderer( const fractal_land& land, const pheronome& phen,
+                    const position_t& pos_nest, const position_t& pos_food,
+                    const AntsSoA& ants )
+    :   m_ref_land( land ),
+        m_land( nullptr ),
+        m_ref_phen( phen ),
+        m_pos_nest( pos_nest ),
+        m_pos_food( pos_food ),
+        m_ref_ants_aos( nullptr ),
+        m_ref_ants_soa( &ants )
 {
     // Note: La texture sera créée lors du premier display() car on a besoin du renderer de la fenêtre
 }
@@ -23,6 +39,8 @@ Renderer::~Renderer() {
 void Renderer::display( Window& win, std::size_t const& compteur )
 {
     SDL_Renderer* renderer = SDL_GetRenderer( win.get() );
+    if ( renderer == nullptr )
+        return;
     
     // Créer la texture du paysage si elle n'existe pas encore
     if ( m_land == nullptr ) {
@@ -64,10 +82,16 @@ void Renderer::display( Window& win, std::size_t const& compteur )
     SDL_SetRenderDrawBlendMode( renderer, SDL_BLENDMODE_BLEND );
     
     // Affichage des fourmis dans le cadran en haut à gauche :
-    for ( auto& ant : m_ref_ants ) {
-        const position_t& pos_ant = ant.get_position( );
-        win.set_pen( 0, 255, 255 );
-        win.pset( static_cast<int>( pos_ant.x ), static_cast<int>( pos_ant.y ) );
+    win.set_pen( 0, 255, 255 );
+    if ( m_ref_ants_aos != nullptr ) {
+        for ( const auto& ant : *m_ref_ants_aos ) {
+            const position_t& pos_ant = ant.get_position( );
+            win.pset( static_cast<int>( pos_ant.x ), static_cast<int>( pos_ant.y ) );
+        }
+    } else if ( m_ref_ants_soa != nullptr ) {
+        for ( std::size_t i = 0; i < m_ref_ants_soa->size(); ++i ) {
+            win.pset( m_ref_ants_soa->x[i], m_ref_ants_soa->y[i] );
+        }
     }
     
     // Affichage des phéronomes dans le cadran en haut à droite :
