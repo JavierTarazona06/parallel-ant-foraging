@@ -30,12 +30,12 @@ struct MeasurementTotals {
 
 void advance_time(const fractal_land& land, pheronome& phen,
                   const position_t& pos_nest, const position_t& pos_food,
-                  std::vector<ant>& ants, std::size_t& cpteur,
+                  std::vector<ant>& ants, std::size_t& cpteur, TimingProfile& profile,
                   IterTimingNs* iter_timing = nullptr)
 {
     std::uint64_t t0_ns = profile_now_ns();
     for (size_t i = 0; i < ants.size(); ++i)
-        ants[i].advance(phen, land, pos_food, pos_nest, cpteur);
+        ants[i].advance(phen, land, pos_food, pos_nest, cpteur, profile);
     std::uint64_t t1_ns = profile_now_ns();
 
     phen.do_evaporation();
@@ -67,8 +67,8 @@ int main(int nargs, char* argv[])
     }
 
     MeasurementTotals totals;
-    g_timing_profile_totals = TimingProfileTotals{};
-    g_timing_profile_enabled = false;
+    TimingProfile profile;
+    profile.reset();
 
     std::size_t seed = sim_config.seed;
     const std::size_t nb_ants = sim_config.ants;
@@ -172,7 +172,7 @@ int main(int nargs, char* argv[])
     if (run_config.benchmark) {
         for (std::size_t it = 0; it < run_config.iterations; ++it) {
             const bool measured = (it >= run_config.warmup);
-            g_timing_profile_enabled = measured;
+            profile.set_enabled(measured);
 
             std::uint64_t e0_start_ns = profile_now_ns();
             while (SDL_PollEvent(&event)) {
@@ -185,12 +185,12 @@ int main(int nargs, char* argv[])
             IterTimingNs iter_timing{};
             std::uint64_t k0_start_ns = profile_now_ns();
             if (run_config.layout == AntLayout::aos) {
-                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity,
+                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity, profile,
                              &iter_timing);
             } else {
                 advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
                                  sim_config.pos_food.x, sim_config.pos_food.y,
-                                 ants_soa, eps, food_quantity, &iter_timing);
+                                 ants_soa, eps, food_quantity, profile, &iter_timing);
             }
             std::uint64_t k0_end_ns = profile_now_ns();
 
@@ -213,9 +213,9 @@ int main(int nargs, char* argv[])
             }
         }
 
-        g_timing_profile_enabled = false;
-        totals.k2_ns = g_timing_profile_totals.k2_ns;
-        totals.k3_ns = g_timing_profile_totals.k3_ns;
+        profile.set_enabled(false);
+        totals.k2_ns = profile.totals().k2_ns;
+        totals.k3_ns = profile.totals().k3_ns;
 
         std::cout << "METRIC measured_iterations " << totals.measured_iterations << '\n';
         std::cout << "METRIC total_iterations " << run_config.iterations << '\n';
@@ -244,11 +244,11 @@ int main(int nargs, char* argv[])
                     cont_loop = false;
             }
             if (run_config.layout == AntLayout::aos) {
-                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity);
+                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity, profile);
             } else {
                 advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
                                  sim_config.pos_food.x, sim_config.pos_food.y,
-                                 ants_soa, eps, food_quantity);
+                                 ants_soa, eps, food_quantity, profile);
             }
             if (renderer && win) {
                 renderer->display(*win, food_quantity);

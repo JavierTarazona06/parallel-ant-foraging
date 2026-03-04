@@ -11,7 +11,7 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
                                 std::int32_t nest_x, std::int32_t nest_y,
                                 std::int32_t food_x, std::int32_t food_y,
                                 AntsSoA& ants, std::size_t ant_index, double eps,
-                                std::size_t& food_counter)
+                                std::size_t& food_counter, TimingProfile& profile)
 {
     std::uint32_t& seed = ants.seed[ant_index];
     std::uint8_t& state = ants.state[ant_index];
@@ -20,7 +20,7 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
     double consumed_time = 0.;
 
     while (consumed_time < 1.) {
-        const std::uint64_t ant_step_start_ns = profile_now_ns();
+        const std::uint64_t ant_step_start_ns = profile.start(TimingSection::k2);
 
         const int ind_pher = (state == 1u) ? 1 : 0;
         const double choix = rand_double(0., 1., seed);
@@ -61,13 +61,13 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
         }
 
         consumed_time += land(static_cast<unsigned long>(new_x), static_cast<unsigned long>(new_y));
-        const std::uint64_t before_mark_ns = profile_now_ns();
-        profile_add_k2(before_mark_ns - ant_step_start_ns);
+        profile.stop(TimingSection::k2, ant_step_start_ns);
 
+        const std::uint64_t mark_start_ns = profile.start(TimingSection::k3);
         phen.mark_pheronome(new_x, new_y);
-        const std::uint64_t after_mark_ns = profile_now_ns();
-        profile_add_k3(after_mark_ns - before_mark_ns);
+        profile.stop(TimingSection::k3, mark_start_ns);
 
+        const std::uint64_t k2_tail_start_ns = profile.start(TimingSection::k2);
         x = new_x;
         y = new_y;
 
@@ -81,8 +81,7 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
             state = 1u;
         }
 
-        const std::uint64_t ant_step_end_ns = profile_now_ns();
-        profile_add_k2(ant_step_end_ns - after_mark_ns);
+        profile.stop(TimingSection::k2, k2_tail_start_ns);
     }
 
     ants.x[ant_index] = x;
@@ -94,12 +93,12 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
 void advance_time_soa(const fractal_land& land, pheronome& phen,
                       std::int32_t nest_x, std::int32_t nest_y,
                       std::int32_t food_x, std::int32_t food_y,
-                      AntsSoA& ants, double eps, std::size_t& food_counter,
+                      AntsSoA& ants, double eps, std::size_t& food_counter, TimingProfile& profile,
                       IterTimingNs* iter_timing)
 {
     const std::uint64_t t0_ns = profile_now_ns();
     for (std::size_t i = 0; i < ants.size(); ++i) {
-        advance_one_ant_soa(land, phen, nest_x, nest_y, food_x, food_y, ants, i, eps, food_counter);
+        advance_one_ant_soa(land, phen, nest_x, nest_y, food_x, food_y, ants, i, eps, food_counter, profile);
     }
     const std::uint64_t t1_ns = profile_now_ns();
 
@@ -115,4 +114,3 @@ void advance_time_soa(const fractal_land& land, pheronome& phen,
         iter_timing->k5_ns += (t3_ns - t2_ns);
     }
 }
-

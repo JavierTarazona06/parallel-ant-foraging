@@ -7,6 +7,8 @@
 #include "fractal_land.hpp"
 #include "pheronome.hpp"
 
+class TimingProfile;
+
 struct IterTimingNs {
     std::uint64_t k1_ns{0};
     std::uint64_t k4_ns{0};
@@ -42,5 +44,5 @@ void advance_time_soa(const fractal_land& land, pheronome& phen,
                       std::int32_t nest_x, std::int32_t nest_y,
                       std::int32_t food_x, std::int32_t food_y,
                       AntsSoA& ants, double eps, std::size_t& food_counter,
+                      TimingProfile& profile,
                       IterTimingNs* iter_timing = nullptr);
-
