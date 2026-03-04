@@ -3,11 +3,15 @@ include Make_linux.inc
 #include Make_osx.inc
 
 CXXFLAGS = -std=c++17
-ifdef DEBUG
+
+# Debug mode is enabled only for explicit truthy values.
+# This avoids accidental debug builds when DEBUG is set to unrelated values
+# in the shell environment (e.g. DEBUG=release).
+ifneq ($(filter 1 yes YES true TRUE,$(DEBUG)),)
 CXXFLAGS += -g -O0 -Wall -fbounds-check -pedantic -D_GLIBCXX_DEBUG
-CXXFLAGS2 = CXXFLAGS
+CXXFLAGS2 := $(CXXFLAGS)
 else
-CXXFLAGS2 = ${CXXFLAGS} -O2 -march=native -Wall 
+CXXFLAGS2 := $(CXXFLAGS) -O2 -march=native -Wall
 CXXFLAGS += -O3 -march=native -Wall
 endif
 
@@ -29,7 +33,7 @@ ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profil
 help:
 	@echo "Available targets : "
 	@echo "    all            : compile all executables"
-	@echo "Add DEBUG=yes to compile in debug"
+	@echo "Add DEBUG=yes (or DEBUG=1) to compile in debug"
 	@echo "Configuration :"
 	@echo "    CXX      :    $(CXX)"
 	@echo "    CXXFLAGS :    $(CXXFLAGS)"
