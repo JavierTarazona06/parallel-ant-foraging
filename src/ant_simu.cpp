@@ -34,12 +34,17 @@ struct RunConfig {
     std::size_t warmup{200};
     bool render{true};
     AntLayout layout{AntLayout::aos};
+};
+
+struct SimConfig {
     std::size_t ants{5000};
     std::size_t seed{2026};
     double alpha{0.7};
     double beta{0.999};
     double epsilon{0.8};
     InitMode init_mode{InitMode::uniform};
+    position_t pos_nest{256, 256};
+    position_t pos_food{500, 500};
 };
 
 struct MeasurementTotals {
@@ -128,7 +133,7 @@ bool parse_probability_value(const char* text, double& value_out)
     return (value_out >= 0.0) && (value_out <= 1.0);
 }
 
-bool parse_args(int nargs, char* argv[], RunConfig& config)
+bool parse_args(int nargs, char* argv[], RunConfig& run_config, SimConfig& sim_config)
 {
     for (int i = 1; i < nargs; ++i) {
         std::string arg = argv[i];
@@ -137,120 +142,120 @@ bool parse_args(int nargs, char* argv[], RunConfig& config)
             std::exit(0);
         }
         if (arg == "--benchmark") {
-            config.benchmark = true;
+            run_config.benchmark = true;
             continue;
         }
         if (arg == "--no-render") {
-            config.render = false;
+            run_config.render = false;
             continue;
         }
         if (arg == "--iterations") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.iterations)) {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], run_config.iterations)) {
                 std::cerr << "Invalid value for --iterations\n";
                 return false;
             }
             continue;
         }
         if (arg == "--warmup") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.warmup)) {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], run_config.warmup)) {
                 std::cerr << "Invalid value for --warmup\n";
                 return false;
             }
             continue;
         }
         if (arg == "--layout") {
-            if (i + 1 >= nargs || !parse_layout_value(argv[++i], config.layout)) {
+            if (i + 1 >= nargs || !parse_layout_value(argv[++i], run_config.layout)) {
                 std::cerr << "Invalid value for --layout (expected aos|soa)\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--layout=", 0) == 0) {
-            if (!parse_layout_value(arg.substr(9), config.layout)) {
+            if (!parse_layout_value(arg.substr(9), run_config.layout)) {
                 std::cerr << "Invalid value for --layout (expected aos|soa)\n";
                 return false;
             }
             continue;
         }
         if (arg == "--ants") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.ants)) {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], sim_config.ants)) {
                 std::cerr << "Invalid value for --ants\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--ants=", 0) == 0) {
-            if (!parse_size_value(arg.substr(7).c_str(), config.ants)) {
+            if (!parse_size_value(arg.substr(7).c_str(), sim_config.ants)) {
                 std::cerr << "Invalid value for --ants\n";
                 return false;
             }
             continue;
         }
         if (arg == "--seed") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.seed)) {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], sim_config.seed)) {
                 std::cerr << "Invalid value for --seed\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--seed=", 0) == 0) {
-            if (!parse_size_value(arg.substr(7).c_str(), config.seed)) {
+            if (!parse_size_value(arg.substr(7).c_str(), sim_config.seed)) {
                 std::cerr << "Invalid value for --seed\n";
                 return false;
             }
             continue;
         }
         if (arg == "--alpha") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.alpha)) {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.alpha)) {
                 std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--alpha=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(8).c_str(), config.alpha)) {
+            if (!parse_probability_value(arg.substr(8).c_str(), sim_config.alpha)) {
                 std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg == "--beta") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.beta)) {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.beta)) {
                 std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--beta=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(7).c_str(), config.beta)) {
+            if (!parse_probability_value(arg.substr(7).c_str(), sim_config.beta)) {
                 std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg == "--epsilon") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.epsilon)) {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.epsilon)) {
                 std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--epsilon=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(10).c_str(), config.epsilon)) {
+            if (!parse_probability_value(arg.substr(10).c_str(), sim_config.epsilon)) {
                 std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
                 return false;
             }
             continue;
         }
         if (arg == "--init") {
-            if (i + 1 >= nargs || !parse_init_mode_value(argv[++i], config.init_mode)) {
+            if (i + 1 >= nargs || !parse_init_mode_value(argv[++i], sim_config.init_mode)) {
                 std::cerr << "Invalid value for --init (expected nest|uniform)\n";
                 return false;
             }
             continue;
         }
         if (arg.rfind("--init=", 0) == 0) {
-            if (!parse_init_mode_value(arg.substr(7), config.init_mode)) {
+            if (!parse_init_mode_value(arg.substr(7), sim_config.init_mode)) {
                 std::cerr << "Invalid value for --init (expected nest|uniform)\n";
                 return false;
             }
@@ -259,7 +264,7 @@ bool parse_args(int nargs, char* argv[], RunConfig& config)
         std::cerr << "Unknown argument: " << arg << '\n';
         return false;
     }
-    if (config.benchmark && config.warmup >= config.iterations) {
+    if (run_config.benchmark && run_config.warmup >= run_config.iterations) {
         std::cerr << "Warmup must be strictly lower than iterations\n";
         return false;
     }
@@ -291,8 +296,9 @@ void advance_time(const fractal_land& land, pheronome& phen,
 
 int main(int nargs, char* argv[])
 {
-    RunConfig config;
-    if (!parse_args(nargs, argv, config)) {
+    RunConfig run_config;
+    SimConfig sim_config;
+    if (!parse_args(nargs, argv, run_config, sim_config)) {
         print_usage(argv[0]);
         return 1;
     }
@@ -306,30 +312,28 @@ int main(int nargs, char* argv[])
     g_timing_profile_totals = TimingProfileTotals{};
     g_timing_profile_enabled = false;
 
-    std::size_t seed = config.seed;
-    const std::size_t nb_ants = config.ants;
-    const double eps = config.epsilon;
-    const double alpha = config.alpha;
-    const double beta = config.beta;
-    position_t pos_nest{256, 256};
-    position_t pos_food{500, 500};
+    std::size_t seed = sim_config.seed;
+    const std::size_t nb_ants = sim_config.ants;
+    const double eps = sim_config.epsilon;
+    const double alpha = sim_config.alpha;
+    const double beta = sim_config.beta;
 
-    if (config.benchmark) {
-        std::cout << "METRIC layout " << layout_to_text(config.layout) << '\n';
+    if (run_config.benchmark) {
+        std::cout << "METRIC layout " << layout_to_text(run_config.layout) << '\n';
         std::cout << "METRIC ants " << nb_ants << '\n';
         std::cout << "METRIC alpha " << alpha << '\n';
         std::cout << "METRIC beta " << beta << '\n';
         std::cout << "METRIC epsilon " << eps << '\n';
         std::cout << "METRIC seed " << seed << '\n';
-        std::cout << "METRIC init " << init_mode_to_text(config.init_mode) << '\n';
+        std::cout << "METRIC init " << init_mode_to_text(sim_config.init_mode) << '\n';
     } else {
-        std::cout << "INFO layout=" << layout_to_text(config.layout)
+        std::cout << "INFO layout=" << layout_to_text(run_config.layout)
                   << " ants=" << nb_ants
                   << " alpha=" << alpha
                   << " beta=" << beta
                   << " epsilon=" << eps
                   << " seed=" << seed
-                  << " init=" << init_mode_to_text(config.init_mode) << std::endl;
+                  << " init=" << init_mode_to_text(sim_config.init_mode) << std::endl;
     }
 
     std::uint64_t p0_start_ns = profile_now_ns();
@@ -355,12 +359,12 @@ int main(int nargs, char* argv[])
     std::vector<ant> ants_aos;
     AntsSoA ants_soa;
     auto gen_ant_pos = [&land, &seed]() { return rand_int32(0, land.dimensions() - 1, seed); };
-    if (config.layout == AntLayout::aos) {
+    if (run_config.layout == AntLayout::aos) {
         ants_aos.reserve(nb_ants);
         for (std::size_t i = 0; i < nb_ants; ++i) {
-            std::int32_t ant_x = pos_nest.x;
-            std::int32_t ant_y = pos_nest.y;
-            if (config.init_mode == InitMode::uniform) {
+            std::int32_t ant_x = sim_config.pos_nest.x;
+            std::int32_t ant_y = sim_config.pos_nest.y;
+            if (sim_config.init_mode == InitMode::uniform) {
                 ant_x = gen_ant_pos();
                 ant_y = gen_ant_pos();
             } else {
@@ -371,9 +375,9 @@ int main(int nargs, char* argv[])
     } else {
         ants_soa.reserve(nb_ants);
         for (std::size_t i = 0; i < nb_ants; ++i) {
-            std::int32_t ant_x = pos_nest.x;
-            std::int32_t ant_y = pos_nest.y;
-            if (config.init_mode == InitMode::uniform) {
+            std::int32_t ant_x = sim_config.pos_nest.x;
+            std::int32_t ant_y = sim_config.pos_nest.y;
+            if (sim_config.init_mode == InitMode::uniform) {
                 ant_x = gen_ant_pos();
                 ant_y = gen_ant_pos();
             } else {
@@ -385,18 +389,18 @@ int main(int nargs, char* argv[])
     }
     totals.p2_ns = profile_now_ns() - p2_start_ns;
 
-    pheronome phen(land.dimensions(), pos_food, pos_nest, alpha, beta);
+    pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, alpha, beta);
 
     std::unique_ptr<Window> win;
     std::unique_ptr<Renderer> renderer;
-    bool render_enabled = config.render;
+    bool render_enabled = run_config.render;
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);
         if (win->is_ready()) {
-            if (config.layout == AntLayout::aos) {
-                renderer = std::make_unique<Renderer>(land, phen, pos_nest, pos_food, ants_aos);
+            if (run_config.layout == AntLayout::aos) {
+                renderer = std::make_unique<Renderer>(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos);
             } else {
-                renderer = std::make_unique<Renderer>(land, phen, pos_nest, pos_food, ants_soa);
+                renderer = std::make_unique<Renderer>(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_soa);
             }
         } else {
             std::cerr << "Renderer unavailable, disabling render timing.\n";
@@ -407,9 +411,9 @@ int main(int nargs, char* argv[])
     size_t food_quantity = 0;
     SDL_Event event;
 
-    if (config.benchmark) {
-        for (std::size_t it = 0; it < config.iterations; ++it) {
-            const bool measured = (it >= config.warmup);
+    if (run_config.benchmark) {
+        for (std::size_t it = 0; it < run_config.iterations; ++it) {
+            const bool measured = (it >= run_config.warmup);
             g_timing_profile_enabled = measured;
 
             std::uint64_t e0_start_ns = profile_now_ns();
@@ -422,10 +426,12 @@ int main(int nargs, char* argv[])
 
             IterTimingNs iter_timing{};
             std::uint64_t k0_start_ns = profile_now_ns();
-            if (config.layout == AntLayout::aos) {
-                advance_time(land, phen, pos_nest, pos_food, ants_aos, food_quantity, &iter_timing);
+            if (run_config.layout == AntLayout::aos) {
+                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity,
+                             &iter_timing);
             } else {
-                advance_time_soa(land, phen, pos_nest.x, pos_nest.y, pos_food.x, pos_food.y,
+                advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
+                                 sim_config.pos_food.x, sim_config.pos_food.y,
                                  ants_soa, eps, food_quantity, &iter_timing);
             }
             std::uint64_t k0_end_ns = profile_now_ns();
@@ -454,8 +460,8 @@ int main(int nargs, char* argv[])
         totals.k3_ns = g_timing_profile_totals.k3_ns;
 
         std::cout << "METRIC measured_iterations " << totals.measured_iterations << '\n';
-        std::cout << "METRIC total_iterations " << config.iterations << '\n';
-        std::cout << "METRIC warmup_iterations " << config.warmup << '\n';
+        std::cout << "METRIC total_iterations " << run_config.iterations << '\n';
+        std::cout << "METRIC warmup_iterations " << run_config.warmup << '\n';
         std::cout << "METRIC nb_ants " << nb_ants << '\n';
         std::cout << "METRIC render_enabled " << (render_enabled ? 1 : 0) << '\n';
         std::cout << "METRIC p0_ns " << totals.p0_ns << '\n';
@@ -479,10 +485,11 @@ int main(int nargs, char* argv[])
                 if (event.type == SDL_QUIT)
                     cont_loop = false;
             }
-            if (config.layout == AntLayout::aos) {
-                advance_time(land, phen, pos_nest, pos_food, ants_aos, food_quantity);
+            if (run_config.layout == AntLayout::aos) {
+                advance_time(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity);
             } else {
-                advance_time_soa(land, phen, pos_nest.x, pos_nest.y, pos_food.x, pos_food.y,
+                advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
+                                 sim_config.pos_food.x, sim_config.pos_food.y,
                                  ants_soa, eps, food_quantity);
             }
             if (renderer && win) {
