@@ -22,12 +22,12 @@ default:	help
 all: $(ALL)
 
 clean:
-	@rm -fr *.o *.exe *~
+	@rm -fr *.o app/*.o *.exe *~
 
 .cpp.o:
 	$(CXX) $(CXXFLAGS2) -c $^ -o $@	
 
-ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o ant_simu.o
+ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o app/cli.o ant_simu.o
 	$(CXX) $(CXXFLAGS2) $^ -o $@ $(LIB)	
 
 help:

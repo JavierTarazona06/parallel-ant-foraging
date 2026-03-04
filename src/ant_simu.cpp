@@ -1,51 +1,17 @@
 #include <algorithm>
-#include <cerrno>
 #include <cstdint>
-#include <cstdlib>
 #include <iostream>
 #include <memory>
-#include <string>
 #include <vector>
 #include "fractal_land.hpp"
 #include "ant.hpp"
+#include "app/cli.hpp"
 #include "ants_soa.hpp"
 #include "pheromone.hpp"
 #include "renderer.hpp"
 #include "window.hpp"
 #include "rand_generator.hpp"
 #include "timing_profile.hpp"
-
-enum class AntLayout { aos, soa };
-enum class InitMode { uniform, nest };
-
-const char* layout_to_text(AntLayout layout)
-{
-    return (layout == AntLayout::soa) ? "soa" : "aos";
-}
-
-const char* init_mode_to_text(InitMode mode)
-{
-    return (mode == InitMode::nest) ? "nest" : "uniform";
-}
-
-struct RunConfig {
-    bool benchmark{false};
-    std::size_t iterations{1200};
-    std::size_t warmup{200};
-    bool render{true};
-    AntLayout layout{AntLayout::aos};
-};
-
-struct SimConfig {
-    std::size_t ants{5000};
-    std::size_t seed{2026};
-    double alpha{0.7};
-    double beta{0.999};
-    double epsilon{0.8};
-    InitMode init_mode{InitMode::uniform};
-    position_t pos_nest{256, 256};
-    position_t pos_food{500, 500};
-};
 
 struct MeasurementTotals {
     std::uint64_t p0_ns{0};
@@ -61,215 +27,6 @@ struct MeasurementTotals {
     std::uint64_t e0_ns{0};
     std::size_t measured_iterations{0};
 };
-
-void print_usage(const char* exe_name)
-{
-    std::cout << "Usage: " << exe_name
-              << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
-              << " [--ants N] [--seed N] [--alpha X] [--beta X] [--epsilon X] [--init <nest|uniform>]\n";
-}
-
-bool parse_size_value(const char* text, std::size_t& value_out)
-{
-    if (text == nullptr || *text == '\0') {
-        return false;
-    }
-    errno = 0;
-    char* end_ptr = nullptr;
-    unsigned long long parsed = std::strtoull(text, &end_ptr, 10);
-    if (errno != 0 || end_ptr == text || *end_ptr != '\0') {
-        return false;
-    }
-    value_out = static_cast<std::size_t>(parsed);
-    return true;
-}
-
-bool parse_layout_value(const std::string& text, AntLayout& layout_out)
-{
-    if (text == "aos") {
-        layout_out = AntLayout::aos;
-        return true;
-    }
-    if (text == "soa") {
-        layout_out = AntLayout::soa;
-        return true;
-    }
-    return false;
-}
-
-bool parse_init_mode_value(const std::string& text, InitMode& mode_out)
-{
-    if (text == "uniform") {
-        mode_out = InitMode::uniform;
-        return true;
-    }
-    if (text == "nest") {
-        mode_out = InitMode::nest;
-        return true;
-    }
-    return false;
-}
-
-bool parse_double_value(const char* text, double& value_out)
-{
-    if (text == nullptr || *text == '\0') {
-        return false;
-    }
-    errno = 0;
-    char* end_ptr = nullptr;
-    const double parsed = std::strtod(text, &end_ptr);
-    if (errno != 0 || end_ptr == text || *end_ptr != '\0') {
-        return false;
-    }
-    value_out = parsed;
-    return true;
-}
-
-bool parse_probability_value(const char* text, double& value_out)
-{
-    if (!parse_double_value(text, value_out)) {
-        return false;
-    }
-    return (value_out >= 0.0) && (value_out <= 1.0);
-}
-
-bool parse_args(int nargs, char* argv[], RunConfig& run_config, SimConfig& sim_config)
-{
-    for (int i = 1; i < nargs; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            std::exit(0);
-        }
-        if (arg == "--benchmark") {
-            run_config.benchmark = true;
-            continue;
-        }
-        if (arg == "--no-render") {
-            run_config.render = false;
-            continue;
-        }
-        if (arg == "--iterations") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], run_config.iterations)) {
-                std::cerr << "Invalid value for --iterations\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--warmup") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], run_config.warmup)) {
-                std::cerr << "Invalid value for --warmup\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--layout") {
-            if (i + 1 >= nargs || !parse_layout_value(argv[++i], run_config.layout)) {
-                std::cerr << "Invalid value for --layout (expected aos|soa)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--layout=", 0) == 0) {
-            if (!parse_layout_value(arg.substr(9), run_config.layout)) {
-                std::cerr << "Invalid value for --layout (expected aos|soa)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--ants") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], sim_config.ants)) {
-                std::cerr << "Invalid value for --ants\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--ants=", 0) == 0) {
-            if (!parse_size_value(arg.substr(7).c_str(), sim_config.ants)) {
-                std::cerr << "Invalid value for --ants\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--seed") {
-            if (i + 1 >= nargs || !parse_size_value(argv[++i], sim_config.seed)) {
-                std::cerr << "Invalid value for --seed\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--seed=", 0) == 0) {
-            if (!parse_size_value(arg.substr(7).c_str(), sim_config.seed)) {
-                std::cerr << "Invalid value for --seed\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--alpha") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.alpha)) {
-                std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--alpha=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(8).c_str(), sim_config.alpha)) {
-                std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--beta") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.beta)) {
-                std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--beta=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(7).c_str(), sim_config.beta)) {
-                std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--epsilon") {
-            if (i + 1 >= nargs || !parse_probability_value(argv[++i], sim_config.epsilon)) {
-                std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--epsilon=", 0) == 0) {
-            if (!parse_probability_value(arg.substr(10).c_str(), sim_config.epsilon)) {
-                std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg == "--init") {
-            if (i + 1 >= nargs || !parse_init_mode_value(argv[++i], sim_config.init_mode)) {
-                std::cerr << "Invalid value for --init (expected nest|uniform)\n";
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--init=", 0) == 0) {
-            if (!parse_init_mode_value(arg.substr(7), sim_config.init_mode)) {
-                std::cerr << "Invalid value for --init (expected nest|uniform)\n";
-                return false;
-            }
-            continue;
-        }
-        std::cerr << "Unknown argument: " << arg << '\n';
-        return false;
-    }
-    if (run_config.benchmark && run_config.warmup >= run_config.iterations) {
-        std::cerr << "Warmup must be strictly lower than iterations\n";
-        return false;
-    }
-    return true;
-}
 
 void advance_time(const fractal_land& land, pheronome& phen,
                   const position_t& pos_nest, const position_t& pos_food,
@@ -296,12 +53,13 @@ void advance_time(const fractal_land& land, pheronome& phen,
 
 int main(int nargs, char* argv[])
 {
-    RunConfig run_config;
-    SimConfig sim_config;
-    if (!parse_args(nargs, argv, run_config, sim_config)) {
+    auto parsed_config = parse_args(nargs, argv);
+    if (!parsed_config.has_value()) {
         print_usage(argv[0]);
         return 1;
     }
+    RunConfig run_config = parsed_config->run;
+    SimConfig sim_config = parsed_config->sim;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
