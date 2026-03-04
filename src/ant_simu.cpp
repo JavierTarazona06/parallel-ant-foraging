@@ -17,6 +17,11 @@
 
 enum class AntLayout { aos, soa };
 
+const char* layout_to_text(AntLayout layout)
+{
+    return (layout == AntLayout::soa) ? "soa" : "aos";
+}
+
 struct RunConfig {
     bool benchmark{false};
     std::size_t iterations{1200};
@@ -175,6 +180,15 @@ int main(int nargs, char* argv[])
     const double beta = 0.999;
     position_t pos_nest{256, 256};
     position_t pos_food{500, 500};
+
+    if (config.benchmark) {
+        std::cout << "METRIC layout " << layout_to_text(config.layout) << '\n';
+        std::cout << "METRIC ants " << nb_ants << '\n';
+        std::cout << "METRIC alpha " << alpha << '\n';
+        std::cout << "METRIC beta " << beta << '\n';
+        std::cout << "METRIC epsilon " << eps << '\n';
+        std::cout << "METRIC seed " << seed << '\n';
+    }
 
     std::uint64_t p0_start_ns = profile_now_ns();
     fractal_land land(8, 2, 1., 1024);
