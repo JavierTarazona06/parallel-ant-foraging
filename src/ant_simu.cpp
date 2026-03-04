@@ -9,17 +9,23 @@
 #include "fractal_land.hpp"
 #include "ant.hpp"
 #include "ants_soa.hpp"
-#include "pheronome.hpp"
+#include "pheromone.hpp"
 #include "renderer.hpp"
 #include "window.hpp"
 #include "rand_generator.hpp"
 #include "timing_profile.hpp"
 
 enum class AntLayout { aos, soa };
+enum class InitMode { uniform, nest };
 
 const char* layout_to_text(AntLayout layout)
 {
     return (layout == AntLayout::soa) ? "soa" : "aos";
+}
+
+const char* init_mode_to_text(InitMode mode)
+{
+    return (mode == InitMode::nest) ? "nest" : "uniform";
 }
 
 struct RunConfig {
@@ -28,6 +34,12 @@ struct RunConfig {
     std::size_t warmup{200};
     bool render{true};
     AntLayout layout{AntLayout::aos};
+    std::size_t ants{5000};
+    std::size_t seed{2026};
+    double alpha{0.7};
+    double beta{0.999};
+    double epsilon{0.8};
+    InitMode init_mode{InitMode::uniform};
 };
 
 struct MeasurementTotals {
@@ -48,7 +60,8 @@ struct MeasurementTotals {
 void print_usage(const char* exe_name)
 {
     std::cout << "Usage: " << exe_name
-              << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]\n";
+              << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
+              << " [--ants N] [--seed N] [--alpha X] [--beta X] [--epsilon X] [--init <nest|uniform>]\n";
 }
 
 bool parse_size_value(const char* text, std::size_t& value_out)
@@ -77,6 +90,42 @@ bool parse_layout_value(const std::string& text, AntLayout& layout_out)
         return true;
     }
     return false;
+}
+
+bool parse_init_mode_value(const std::string& text, InitMode& mode_out)
+{
+    if (text == "uniform") {
+        mode_out = InitMode::uniform;
+        return true;
+    }
+    if (text == "nest") {
+        mode_out = InitMode::nest;
+        return true;
+    }
+    return false;
+}
+
+bool parse_double_value(const char* text, double& value_out)
+{
+    if (text == nullptr || *text == '\0') {
+        return false;
+    }
+    errno = 0;
+    char* end_ptr = nullptr;
+    const double parsed = std::strtod(text, &end_ptr);
+    if (errno != 0 || end_ptr == text || *end_ptr != '\0') {
+        return false;
+    }
+    value_out = parsed;
+    return true;
+}
+
+bool parse_probability_value(const char* text, double& value_out)
+{
+    if (!parse_double_value(text, value_out)) {
+        return false;
+    }
+    return (value_out >= 0.0) && (value_out <= 1.0);
 }
 
 bool parse_args(int nargs, char* argv[], RunConfig& config)
@@ -119,6 +168,90 @@ bool parse_args(int nargs, char* argv[], RunConfig& config)
         if (arg.rfind("--layout=", 0) == 0) {
             if (!parse_layout_value(arg.substr(9), config.layout)) {
                 std::cerr << "Invalid value for --layout (expected aos|soa)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--ants") {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.ants)) {
+                std::cerr << "Invalid value for --ants\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--ants=", 0) == 0) {
+            if (!parse_size_value(arg.substr(7).c_str(), config.ants)) {
+                std::cerr << "Invalid value for --ants\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--seed") {
+            if (i + 1 >= nargs || !parse_size_value(argv[++i], config.seed)) {
+                std::cerr << "Invalid value for --seed\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--seed=", 0) == 0) {
+            if (!parse_size_value(arg.substr(7).c_str(), config.seed)) {
+                std::cerr << "Invalid value for --seed\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--alpha") {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.alpha)) {
+                std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--alpha=", 0) == 0) {
+            if (!parse_probability_value(arg.substr(8).c_str(), config.alpha)) {
+                std::cerr << "Invalid value for --alpha (expected 0<=alpha<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--beta") {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.beta)) {
+                std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--beta=", 0) == 0) {
+            if (!parse_probability_value(arg.substr(7).c_str(), config.beta)) {
+                std::cerr << "Invalid value for --beta (expected 0<=beta<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--epsilon") {
+            if (i + 1 >= nargs || !parse_probability_value(argv[++i], config.epsilon)) {
+                std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--epsilon=", 0) == 0) {
+            if (!parse_probability_value(arg.substr(10).c_str(), config.epsilon)) {
+                std::cerr << "Invalid value for --epsilon (expected 0<=epsilon<=1)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg == "--init") {
+            if (i + 1 >= nargs || !parse_init_mode_value(argv[++i], config.init_mode)) {
+                std::cerr << "Invalid value for --init (expected nest|uniform)\n";
+                return false;
+            }
+            continue;
+        }
+        if (arg.rfind("--init=", 0) == 0) {
+            if (!parse_init_mode_value(arg.substr(7), config.init_mode)) {
+                std::cerr << "Invalid value for --init (expected nest|uniform)\n";
                 return false;
             }
             continue;
@@ -173,11 +306,11 @@ int main(int nargs, char* argv[])
     g_timing_profile_totals = TimingProfileTotals{};
     g_timing_profile_enabled = false;
 
-    std::size_t seed = 2026;
-    const int nb_ants = 5000;
-    const double eps = 0.8;
-    const double alpha = 0.7;
-    const double beta = 0.999;
+    std::size_t seed = config.seed;
+    const std::size_t nb_ants = config.ants;
+    const double eps = config.epsilon;
+    const double alpha = config.alpha;
+    const double beta = config.beta;
     position_t pos_nest{256, 256};
     position_t pos_food{500, 500};
 
@@ -188,6 +321,15 @@ int main(int nargs, char* argv[])
         std::cout << "METRIC beta " << beta << '\n';
         std::cout << "METRIC epsilon " << eps << '\n';
         std::cout << "METRIC seed " << seed << '\n';
+        std::cout << "METRIC init " << init_mode_to_text(config.init_mode) << '\n';
+    } else {
+        std::cout << "INFO layout=" << layout_to_text(config.layout)
+                  << " ants=" << nb_ants
+                  << " alpha=" << alpha
+                  << " beta=" << beta
+                  << " epsilon=" << eps
+                  << " seed=" << seed
+                  << " init=" << init_mode_to_text(config.init_mode) << std::endl;
     }
 
     std::uint64_t p0_start_ns = profile_now_ns();
@@ -215,14 +357,28 @@ int main(int nargs, char* argv[])
     auto gen_ant_pos = [&land, &seed]() { return rand_int32(0, land.dimensions() - 1, seed); };
     if (config.layout == AntLayout::aos) {
         ants_aos.reserve(nb_ants);
-        for (size_t i = 0; i < static_cast<size_t>(nb_ants); ++i) {
-            ants_aos.emplace_back(position_t{gen_ant_pos(), gen_ant_pos()}, seed);
+        for (std::size_t i = 0; i < nb_ants; ++i) {
+            std::int32_t ant_x = pos_nest.x;
+            std::int32_t ant_y = pos_nest.y;
+            if (config.init_mode == InitMode::uniform) {
+                ant_x = gen_ant_pos();
+                ant_y = gen_ant_pos();
+            } else {
+                (void)rand_int32(0, 0, seed);
+            }
+            ants_aos.emplace_back(position_t{ant_x, ant_y}, seed);
         }
     } else {
         ants_soa.reserve(nb_ants);
-        for (size_t i = 0; i < static_cast<size_t>(nb_ants); ++i) {
-            const std::int32_t ant_x = gen_ant_pos();
-            const std::int32_t ant_y = gen_ant_pos();
+        for (std::size_t i = 0; i < nb_ants; ++i) {
+            std::int32_t ant_x = pos_nest.x;
+            std::int32_t ant_y = pos_nest.y;
+            if (config.init_mode == InitMode::uniform) {
+                ant_x = gen_ant_pos();
+                ant_y = gen_ant_pos();
+            } else {
+                (void)rand_int32(0, 0, seed);
+            }
             const std::uint32_t ant_seed = static_cast<std::uint32_t>(seed);
             ants_soa.push_back(ant_x, ant_y, ant_seed, 0u);
         }
