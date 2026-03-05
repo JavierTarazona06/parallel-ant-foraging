@@ -21,6 +21,7 @@ namespace {
 void print_startup_header(const RunConfig& run_config, const SimConfig& sim_config)
 {
     if (run_config.benchmark) {
+        std::cout << "METRIC exec " << exec_model_to_text(run_config.exec_model) << '\n';
         std::cout << "METRIC layout " << layout_to_text(run_config.layout) << '\n';
         std::cout << "METRIC ants " << sim_config.ants << '\n';
         std::cout << "METRIC alpha " << sim_config.alpha << '\n';
@@ -29,7 +30,8 @@ void print_startup_header(const RunConfig& run_config, const SimConfig& sim_conf
         std::cout << "METRIC seed " << sim_config.seed << '\n';
         std::cout << "METRIC init " << init_mode_to_text(sim_config.init_mode) << '\n';
     } else {
-        std::cout << "INFO layout=" << layout_to_text(run_config.layout)
+        std::cout << "INFO exec=" << exec_model_to_text(run_config.exec_model)
+                  << " layout=" << layout_to_text(run_config.layout)
                   << " ants=" << sim_config.ants
                   << " alpha=" << sim_config.alpha
                   << " beta=" << sim_config.beta
@@ -111,12 +113,6 @@ int main(int nargs, char* argv[])
 
     const RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
-
-    if (run_config.exec_model != ExecModel::serial) {
-        std::cerr << "Execution model '" << exec_model_to_text(run_config.exec_model)
-                  << "' is not implemented yet. Use --exec serial.\n";
-        return 1;
-    }
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';

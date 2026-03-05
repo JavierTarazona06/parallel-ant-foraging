@@ -14,9 +14,9 @@ std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
     (void)sim_config;
     (void)world_state;
 
-    if (run_config.exec_model != ExecModel::serial) {
+    if (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2) {
         std::cerr << "Execution model '" << exec_model_to_text(run_config.exec_model)
-                  << "' is not implemented yet. Use --exec serial.\n";
+                  << "' is not implemented yet. Use --exec serial or --exec omp.\n";
         return nullptr;
     }
 
