@@ -115,6 +115,7 @@ public:
     std::size_t cell_count() const { return m_map_v1.size(); }
 
     void do_evaporation( ) {
+        #pragma omp parallel for collapse(2) schedule(static)
         for ( std::size_t i = 1; i <= m_dim; ++i )
             for ( std::size_t j = 1; j <= m_dim; ++j ) {
                 const std::size_t idx = i * m_stride + j;
