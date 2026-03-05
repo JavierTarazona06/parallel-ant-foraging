@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <utility>
 #include <vector>
 #include "basic_types.hpp"
@@ -65,6 +66,8 @@ public:
           m_map_v2( m_stride * m_stride, 0.0 ),
           m_buffer_v1( m_stride * m_stride, 0.0 ),
           m_buffer_v2( m_stride * m_stride, 0.0 ),
+          m_mark_epoch( m_stride * m_stride, 0u ),
+          m_epoch( 1u ),
           m_pos_nest( pos_nest ),
           m_pos_food( pos_food ) 
           {
@@ -141,12 +144,24 @@ public:
         double             v1_bottom   = std::max( phen( i, j + 1 )[0], 0. );
         double             v2_bottom   = std::max( phen( i, j + 1 )[1], 0. );
         const std::size_t idx = flat_index(i, j);
-        m_buffer_v1[idx] =
+        const double mark_v1 =
             m_alpha * std::max( {v1_left, v1_right, v1_upper, v1_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v1_left + v1_right + v1_upper + v1_bottom );
-        m_buffer_v2[idx] =
+        const double mark_v2 =
             m_alpha * std::max( {v2_left, v2_right, v2_upper, v2_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v2_left + v2_right + v2_upper + v2_bottom );
+
+        // Idempotent mark in the current iteration:
+        // first visit sets the mark value, repeated visits use MAX so update order
+        // does not matter (future OpenMP/MPI MAX-reduction compatibility).
+        if (m_mark_epoch[idx] != m_epoch) {
+            m_mark_epoch[idx] = m_epoch;
+            m_buffer_v1[idx] = mark_v1;
+            m_buffer_v2[idx] = mark_v2;
+        } else {
+            m_buffer_v1[idx] = std::max(m_buffer_v1[idx], mark_v1);
+            m_buffer_v2[idx] = std::max(m_buffer_v2[idx], mark_v2);
+        }
     }
 
     void mark_pheronome( const position_t& pos ) {
@@ -159,6 +174,7 @@ public:
         cl_update( );
         m_map_v1[( m_pos_food.x + 1 ) * m_stride + m_pos_food.y + 1] = 1;
         m_map_v2[( m_pos_nest.x + 1 ) * m_stride + m_pos_nest.y + 1] = 1;
+        advance_epoch();
     }
 
 private:
@@ -190,10 +206,23 @@ private:
             m_map_v2[j * m_stride + m_dim + 1]     = -1.;
         }
     }
+
+    void advance_epoch()
+    {
+        if (m_epoch == std::numeric_limits<std::uint32_t>::max()) {
+            std::fill(m_mark_epoch.begin(), m_mark_epoch.end(), 0u);
+            m_epoch = 1u;
+        } else {
+            ++m_epoch;
+        }
+    }
+
     unsigned long              m_dim, m_stride;
     double                     m_alpha, m_beta;
     std::vector<double> m_map_v1, m_map_v2;
     std::vector<double> m_buffer_v1, m_buffer_v2;
+    std::vector<std::uint32_t> m_mark_epoch;
+    std::uint32_t m_epoch;
     position_t m_pos_nest, m_pos_food;
 };
 
