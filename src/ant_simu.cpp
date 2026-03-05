@@ -11,6 +11,7 @@
 #include "pheromone.hpp"
 #include "rand_generator.hpp"
 #include "renderer.hpp"
+#include "sim/backend.hpp"
 #include "sim/runner.hpp"
 #include "timing_profile.hpp"
 #include "window.hpp"
@@ -135,6 +136,7 @@ int main(int nargs, char* argv[])
     const std::uint64_t p2_start_ns = profile_now_ns();
     initialize_ants(run_config, sim_config, land, ants_aos, ants_soa);
     totals.p2_ns = profile_now_ns() - p2_start_ns;
+    std::unique_ptr<Backend> backend = create_backend(run_config.layout, ants_aos, ants_soa);
 
     pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, sim_config.alpha, sim_config.beta);
 
@@ -144,11 +146,7 @@ int main(int nargs, char* argv[])
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);
         if (win->is_ready()) {
-            if (run_config.layout == AntLayout::aos) {
-                renderer = std::make_unique<Renderer>(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos);
-            } else {
-                renderer = std::make_unique<Renderer>(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_soa);
-            }
+            renderer = backend->create_renderer(land, phen, sim_config.pos_nest, sim_config.pos_food);
         } else {
             std::cerr << "Renderer unavailable, disabling render timing.\n";
             render_enabled = false;
@@ -157,11 +155,10 @@ int main(int nargs, char* argv[])
 
     std::size_t food_quantity = 0;
     if (run_config.benchmark) {
-        run_benchmark(run_config, sim_config, land, phen, ants_aos, ants_soa, render_enabled, renderer.get(), win.get(),
+        run_benchmark(run_config, sim_config, land, phen, *backend, render_enabled, renderer.get(), win.get(),
                       food_quantity, totals);
     } else {
-        run_interactive(run_config, sim_config, land, phen, ants_aos, ants_soa, renderer.get(), win.get(),
-                        food_quantity);
+        run_interactive(run_config, sim_config, land, phen, *backend, renderer.get(), win.get(), food_quantity);
     }
 
     SDL_Quit();

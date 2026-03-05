@@ -4,47 +4,17 @@
 
 #include <SDL2/SDL.h>
 
-#include "../ant.hpp"
-#include "../ants_soa.hpp"
 #include "../fractal_land.hpp"
-#include "../renderer.hpp"
 #include "../timing_profile.hpp"
+#include "backend.hpp"
+#include "../renderer.hpp"
 #include "../window.hpp"
-
-namespace {
-
-void advance_time_aos(const fractal_land& land, pheronome& phen,
-                      const position_t& pos_nest, const position_t& pos_food,
-                      std::vector<ant>& ants, std::size_t& food_counter, TimingProfile& profile,
-                      IterTimingNs* iter_timing = nullptr)
-{
-    const std::uint64_t t0_ns = profile_now_ns();
-    for (std::size_t i = 0; i < ants.size(); ++i) {
-        ants[i].advance(phen, land, pos_food, pos_nest, food_counter, profile);
-    }
-    const std::uint64_t t1_ns = profile_now_ns();
-
-    phen.do_evaporation();
-    const std::uint64_t t2_ns = profile_now_ns();
-
-    phen.update();
-    const std::uint64_t t3_ns = profile_now_ns();
-
-    if (iter_timing != nullptr) {
-        iter_timing->k1_ns += (t1_ns - t0_ns);
-        iter_timing->k4_ns += (t2_ns - t1_ns);
-        iter_timing->k5_ns += (t3_ns - t2_ns);
-    }
-}
-
-} // namespace
 
 void run_benchmark(const RunConfig& run_config,
                    const SimConfig& sim_config,
                    const fractal_land& land,
                    pheronome& phen,
-                   std::vector<ant>& ants_aos,
-                   AntsSoA& ants_soa,
+                   Backend& backend,
                    bool render_enabled,
                    Renderer* renderer,
                    Window* win,
@@ -69,14 +39,8 @@ void run_benchmark(const RunConfig& run_config,
 
         IterTimingNs iter_timing{};
         const std::uint64_t k0_start_ns = profile_now_ns();
-        if (run_config.layout == AntLayout::aos) {
-            advance_time_aos(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity, profile,
-                             &iter_timing);
-        } else {
-            advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
-                             sim_config.pos_food.x, sim_config.pos_food.y, ants_soa, sim_config.epsilon,
-                             food_quantity, profile, &iter_timing);
-        }
+        WorldState world{land, phen, food_quantity, profile, &iter_timing};
+        backend.step(world, sim_config);
         const std::uint64_t k0_end_ns = profile_now_ns();
 
         if (measured) {
@@ -124,12 +88,12 @@ void run_interactive(const RunConfig& run_config,
                      const SimConfig& sim_config,
                      const fractal_land& land,
                      pheronome& phen,
-                     std::vector<ant>& ants_aos,
-                     AntsSoA& ants_soa,
+                     Backend& backend,
                      Renderer* renderer,
                      Window* win,
                      std::size_t& food_quantity)
 {
+    (void)run_config;
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
@@ -144,13 +108,8 @@ void run_interactive(const RunConfig& run_config,
                 cont_loop = false;
             }
         }
-        if (run_config.layout == AntLayout::aos) {
-            advance_time_aos(land, phen, sim_config.pos_nest, sim_config.pos_food, ants_aos, food_quantity, profile);
-        } else {
-            advance_time_soa(land, phen, sim_config.pos_nest.x, sim_config.pos_nest.y,
-                             sim_config.pos_food.x, sim_config.pos_food.y, ants_soa, sim_config.epsilon,
-                             food_quantity, profile);
-        }
+        WorldState world{land, phen, food_quantity, profile, nullptr};
+        backend.step(world, sim_config);
         if (renderer != nullptr && win != nullptr) {
             renderer->display(*win, food_quantity);
             win->blit();

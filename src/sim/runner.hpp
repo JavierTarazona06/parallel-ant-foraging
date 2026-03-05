@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 #include "../app/cli.hpp"
 
@@ -10,8 +9,7 @@ class fractal_land;
 class pheronome;
 class Renderer;
 class Window;
-class ant;
-struct AntsSoA;
+class Backend;
 
 struct MeasurementTotals {
     std::uint64_t p0_ns{0};
@@ -32,8 +30,7 @@ void run_benchmark(const RunConfig& run_config,
                    const SimConfig& sim_config,
                    const fractal_land& land,
                    pheronome& phen,
-                   std::vector<ant>& ants_aos,
-                   AntsSoA& ants_soa,
+                   Backend& backend,
                    bool render_enabled,
                    Renderer* renderer,
                    Window* win,
@@ -44,8 +41,7 @@ void run_interactive(const RunConfig& run_config,
                      const SimConfig& sim_config,
                      const fractal_land& land,
                      pheronome& phen,
-                     std::vector<ant>& ants_aos,
-                     AntsSoA& ants_soa,
+                     Backend& backend,
                      Renderer* renderer,
                      Window* win,
                      std::size_t& food_quantity);
