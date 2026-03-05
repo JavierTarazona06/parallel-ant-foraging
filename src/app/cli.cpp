@@ -10,6 +10,21 @@ const char* layout_to_text(AntLayout layout)
     return (layout == AntLayout::soa) ? "soa" : "aos";
 }
 
+const char* exec_model_to_text(ExecModel model)
+{
+    switch (model) {
+    case ExecModel::serial:
+        return "serial";
+    case ExecModel::omp:
+        return "omp";
+    case ExecModel::mpi1:
+        return "mpi1";
+    case ExecModel::mpi2:
+        return "mpi2";
+    }
+    return "serial";
+}
+
 const char* init_mode_to_text(InitMode mode)
 {
     return (mode == InitMode::nest) ? "nest" : "uniform";
@@ -19,6 +34,7 @@ void print_usage(const char* exe_name)
 {
     std::cout << "Usage: " << exe_name
               << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
+              << " [--exec <serial|omp|mpi1|mpi2>]"
               << " [--ants N] [--seed N] [--alpha X] [--beta X] [--epsilon X] [--init <nest|uniform>]\n";
 }
 
@@ -47,6 +63,27 @@ bool parse_layout_value(const std::string& text, AntLayout& layout_out)
     }
     if (text == "soa") {
         layout_out = AntLayout::soa;
+        return true;
+    }
+    return false;
+}
+
+bool parse_exec_model_value(const std::string& text, ExecModel& model_out)
+{
+    if (text == "serial") {
+        model_out = ExecModel::serial;
+        return true;
+    }
+    if (text == "omp") {
+        model_out = ExecModel::omp;
+        return true;
+    }
+    if (text == "mpi1") {
+        model_out = ExecModel::mpi1;
+        return true;
+    }
+    if (text == "mpi2") {
+        model_out = ExecModel::mpi2;
         return true;
     }
     return false;
@@ -131,6 +168,20 @@ std::optional<ParsedConfig> parse_args(int nargs, char* argv[])
         if (arg.rfind("--layout=", 0) == 0) {
             if (!parse_layout_value(arg.substr(9), parsed.run.layout)) {
                 std::cerr << "Invalid value for --layout (expected aos|soa)\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (arg == "--exec") {
+            if (i + 1 >= nargs || !parse_exec_model_value(argv[++i], parsed.run.exec_model)) {
+                std::cerr << "Invalid value for --exec (expected serial|omp|mpi1|mpi2)\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (arg.rfind("--exec=", 0) == 0) {
+            if (!parse_exec_model_value(arg.substr(7), parsed.run.exec_model)) {
+                std::cerr << "Invalid value for --exec (expected serial|omp|mpi1|mpi2)\n";
                 return std::nullopt;
             }
             continue;

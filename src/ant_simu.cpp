@@ -112,6 +112,12 @@ int main(int nargs, char* argv[])
     const RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
 
+    if (run_config.exec_model != ExecModel::serial) {
+        std::cerr << "Execution model '" << exec_model_to_text(run_config.exec_model)
+                  << "' is not implemented yet. Use --exec serial.\n";
+        return 1;
+    }
+
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return 1;
@@ -136,9 +142,17 @@ int main(int nargs, char* argv[])
     const std::uint64_t p2_start_ns = profile_now_ns();
     initialize_ants(run_config, sim_config, land, ants_aos, ants_soa);
     totals.p2_ns = profile_now_ns() - p2_start_ns;
-    std::unique_ptr<Backend> backend = create_backend(run_config.layout, ants_aos, ants_soa);
 
     pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, sim_config.alpha, sim_config.beta);
+    std::size_t food_quantity = 0;
+    TimingProfile backend_factory_profile;
+    backend_factory_profile.reset();
+    WorldState backend_factory_world{land, phen, food_quantity, backend_factory_profile, nullptr};
+    std::unique_ptr<Backend> backend = make_backend(run_config, sim_config, backend_factory_world, ants_aos, ants_soa);
+    if (!backend) {
+        SDL_Quit();
+        return 1;
+    }
 
     std::unique_ptr<Window> win;
     std::unique_ptr<Renderer> renderer;
@@ -153,7 +167,6 @@ int main(int nargs, char* argv[])
         }
     }
 
-    std::size_t food_quantity = 0;
     if (run_config.benchmark) {
         run_benchmark(run_config, sim_config, land, phen, *backend, render_enabled, renderer.get(), win.get(),
                       food_quantity, totals);

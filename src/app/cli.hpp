@@ -5,9 +5,11 @@
 #include "../basic_types.hpp"
 
 enum class AntLayout { aos, soa };
+enum class ExecModel { serial, omp, mpi1, mpi2 };
 enum class InitMode { uniform, nest };
 
 const char* layout_to_text(AntLayout layout);
+const char* exec_model_to_text(ExecModel model);
 const char* init_mode_to_text(InitMode mode);
 
 struct RunConfig {
@@ -16,6 +18,7 @@ struct RunConfig {
     std::size_t warmup{200};
     bool render{true};
     AntLayout layout{AntLayout::aos};
+    ExecModel exec_model{ExecModel::serial};
 };
 
 struct SimConfig {

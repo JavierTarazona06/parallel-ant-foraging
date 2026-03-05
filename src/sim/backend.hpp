@@ -33,6 +33,8 @@ public:
                                                       const position_t& pos_food) const = 0;
 };
 
-std::unique_ptr<Backend> create_backend(AntLayout layout,
-                                        std::vector<ant>& ants_aos,
-                                        AntsSoA& ants_soa);
+std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
+                                      const SimConfig& sim_config,
+                                      const WorldState& world_state,
+                                      std::vector<ant>& ants_aos,
+                                      AntsSoA& ants_soa);
