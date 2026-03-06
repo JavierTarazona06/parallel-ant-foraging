@@ -176,20 +176,42 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     std::size_t merged_food_delta = 0;
     std::uint64_t merged_k2_ns = 0;
     std::uint64_t merged_k3_ns = 0;
-    for (ThreadTouchedCells& local : per_thread) {
+    std::size_t total_touched_v1 = 0;
+    std::size_t total_touched_v2 = 0;
+    for (const ThreadTouchedCells& local : per_thread) {
         merged_food_delta += local.food_delta;
         merged_k2_ns += local.k2_ns;
         merged_k3_ns += local.k3_ns;
-
-        // Replay marks after the parallel ant loop to avoid global pheromone writes
-        // inside the OpenMP region.
-        for (const std::size_t idx : local.touched_v1) {
-            replay_mark_from_index(world.phen, idx, stride);
-        }
-        for (const std::size_t idx : local.touched_v2) {
-            replay_mark_from_index(world.phen, idx, stride);
-        }
+        total_touched_v1 += local.touched_v1.size();
+        total_touched_v2 += local.touched_v2.size();
     }
+
+    std::vector<std::size_t> merged_touched_v1;
+    std::vector<std::size_t> merged_touched_v2;
+    merged_touched_v1.reserve(total_touched_v1);
+    merged_touched_v2.reserve(total_touched_v2);
+
+    for (const ThreadTouchedCells& local : per_thread) {
+        merged_touched_v1.insert(merged_touched_v1.end(), local.touched_v1.begin(), local.touched_v1.end());
+        merged_touched_v2.insert(merged_touched_v2.end(), local.touched_v2.begin(), local.touched_v2.end());
+    }
+
+    const std::uint64_t mark_merge_start_ns = profile_now_ns();
+    std::sort(merged_touched_v1.begin(), merged_touched_v1.end());
+    merged_touched_v1.erase(std::unique(merged_touched_v1.begin(), merged_touched_v1.end()), merged_touched_v1.end());
+
+    std::sort(merged_touched_v2.begin(), merged_touched_v2.end());
+    merged_touched_v2.erase(std::unique(merged_touched_v2.begin(), merged_touched_v2.end()), merged_touched_v2.end());
+
+    // Replay marks only once per unique touched cell per channel outside
+    // the OpenMP region to avoid races on the pheromone map.
+    for (const std::size_t idx : merged_touched_v1) {
+        replay_mark_from_index(world.phen, idx, stride);
+    }
+    for (const std::size_t idx : merged_touched_v2) {
+        replay_mark_from_index(world.phen, idx, stride);
+    }
+    merged_k3_ns += (profile_now_ns() - mark_merge_start_ns);
 
     world.food_quantity += merged_food_delta;
     world.profile.add(TimingSection::k2, merged_k2_ns);
