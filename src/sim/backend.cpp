@@ -3,6 +3,8 @@
 #include <iostream>
 
 #include "aos_backend.hpp"
+#include "omp_aos_backend.hpp"
+#include "omp_soa_backend.hpp"
 #include "soa_backend.hpp"
 
 std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
@@ -20,8 +22,21 @@ std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
         return nullptr;
     }
 
-    if (run_config.layout == AntLayout::aos) {
-        return std::make_unique<AosBackend>(ants_aos);
+    if (run_config.exec_model == ExecModel::serial) {
+        if (run_config.layout == AntLayout::aos) {
+            return std::make_unique<AosBackend>(ants_aos);
+        }
+        return std::make_unique<SoaBackend>(ants_soa);
     }
-    return std::make_unique<SoaBackend>(ants_soa);
+
+    if (run_config.exec_model == ExecModel::omp) {
+        if (run_config.layout == AntLayout::aos) {
+            return std::make_unique<OmpAosBackend>(ants_aos);
+        }
+        return std::make_unique<OmpSoaBackend>(ants_soa);
+    }
+
+    std::cerr << "Execution model '" << exec_model_to_text(run_config.exec_model)
+              << "' is not implemented yet.\n";
+    return nullptr;
 }

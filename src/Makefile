@@ -27,7 +27,7 @@ clean:
 .cpp.o:
 	$(CXX) $(CXXFLAGS2) -c $^ -o $@	
 
-ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o app/cli.o sim/backend.o sim/aos_backend.o sim/soa_backend.o sim/runner.o ant_simu.o
+ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o app/cli.o sim/backend.o sim/aos_backend.o sim/soa_backend.o sim/omp_aos_backend.o sim/omp_soa_backend.o sim/runner.o ant_simu.o
 	$(CXX) $(CXXFLAGS2) $^ -o $@ $(LIB)	
 
 help:
