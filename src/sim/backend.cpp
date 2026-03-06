@@ -3,7 +3,6 @@
 #include <iostream>
 
 #include "aos_backend.hpp"
-#include "omp_aos_backend.hpp"
 #include "omp_soa_backend.hpp"
 #include "soa_backend.hpp"
 
@@ -31,7 +30,8 @@ std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
 
     if (run_config.exec_model == ExecModel::omp) {
         if (run_config.layout == AntLayout::aos) {
-            return std::make_unique<OmpAosBackend>(ants_aos);
+            std::cerr << "Execution model 'omp' is currently supported only with --layout soa.\n";
+            return nullptr;
         }
         return std::make_unique<OmpSoaBackend>(ants_soa);
     }
