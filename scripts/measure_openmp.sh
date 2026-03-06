@@ -29,6 +29,10 @@ Outputs:
       rep_<r>.metrics
       rep_<r>.stderr
       raw_measurements.csv
+      raw_measurements_full.csv
+      table_a.csv
+      table_b.csv
+      init_times.csv
 EOF
 }
 
@@ -83,6 +87,11 @@ metric_from_file() {
   local metric_name="$1"
   local file_path="$2"
   awk -v key="${metric_name}" '$1=="METRIC" && $2==key {print $3}' "${file_path}" | tail -n 1
+}
+
+ns_to_ms() {
+  local ns_value="$1"
+  awk -v ns="${ns_value}" 'BEGIN { printf "%.6f", ns / 1000000.0 }'
 }
 
 ns_per_iter_to_ms() {
@@ -291,9 +300,15 @@ echo "[2/4] Running thread sweep: ${THREADS_CSV}"
 for t in "${THREAD_LIST[@]}"; do
   THREAD_DIR="${OUT_DIR}/threads_${t}"
   mkdir -p "${THREAD_DIR}"
+
   RAW_CSV="${THREAD_DIR}/raw_measurements.csv"
   cat > "${RAW_CSV}" <<'CSV'
 rep,measured_iterations,k0_ns,k4_ns,k0_ms_iter,k4_ms_iter
+CSV
+
+  RAW_FULL_CSV="${THREAD_DIR}/raw_measurements_full.csv"
+  cat > "${RAW_FULL_CSV}" <<'CSV'
+rep,measured_iters,nb_ants,render_enabled,p0_ns,p1_ns,p2_ns,k0_ns,k1_ns,k2_ns,k3_ns,k4_ns,k5_ns,r0_ns,e0_ns,p0_ms,p1_ms,p2_ms,k0_ms_iter,k1_ms_iter,k2_ms_iter,k3_ms_iter,k4_ms_iter,k5_ms_iter,r0_ms_iter,e0_ms_iter,t_iter_total_ms_iter,ants_per_s
 CSV
 
   {
@@ -317,21 +332,121 @@ CSV
     measured_iters="$(metric_from_file measured_iterations "${METRICS_FILE}")"
     k0_ns="$(metric_from_file k0_ns "${METRICS_FILE}")"
     k4_ns="$(metric_from_file k4_ns "${METRICS_FILE}")"
+    nb_ants="$(metric_from_file nb_ants "${METRICS_FILE}")"
+    render_enabled="$(metric_from_file render_enabled "${METRICS_FILE}")"
+    p0_ns="$(metric_from_file p0_ns "${METRICS_FILE}")"
+    p1_ns="$(metric_from_file p1_ns "${METRICS_FILE}")"
+    p2_ns="$(metric_from_file p2_ns "${METRICS_FILE}")"
+    k1_ns="$(metric_from_file k1_ns "${METRICS_FILE}")"
+    k2_ns="$(metric_from_file k2_ns "${METRICS_FILE}")"
+    k3_ns="$(metric_from_file k3_ns "${METRICS_FILE}")"
+    k5_ns="$(metric_from_file k5_ns "${METRICS_FILE}")"
+    r0_ns="$(metric_from_file r0_ns "${METRICS_FILE}")"
+    e0_ns="$(metric_from_file e0_ns "${METRICS_FILE}")"
 
     if [[ -z "${measured_iters}" || "${measured_iters}" -eq 0 ]]; then
       echo "Invalid measured_iterations for thread=${t}, rep=${rep}" >&2
       exit 1
     fi
 
+    if [[ -z "${nb_ants}" ]]; then
+      nb_ants="$(metric_from_file ants "${METRICS_FILE}")"
+    fi
+
+    for metric in nb_ants render_enabled p0_ns p1_ns p2_ns k1_ns k2_ns k3_ns k5_ns r0_ns e0_ns; do
+      if [[ -z "${!metric}" ]]; then
+        printf -v "${metric}" "0"
+      fi
+    done
+
+    p0_ms="$(ns_to_ms "${p0_ns}")"
+    p1_ms="$(ns_to_ms "${p1_ns}")"
+    p2_ms="$(ns_to_ms "${p2_ns}")"
     k0_ms_iter="$(ns_per_iter_to_ms "${k0_ns}" "${measured_iters}")"
+    k1_ms_iter="$(ns_per_iter_to_ms "${k1_ns}" "${measured_iters}")"
+    k2_ms_iter="$(ns_per_iter_to_ms "${k2_ns}" "${measured_iters}")"
+    k3_ms_iter="$(ns_per_iter_to_ms "${k3_ns}" "${measured_iters}")"
     k4_ms_iter="$(ns_per_iter_to_ms "${k4_ns}" "${measured_iters}")"
+    k5_ms_iter="$(ns_per_iter_to_ms "${k5_ns}" "${measured_iters}")"
+    r0_ms_iter="$(ns_per_iter_to_ms "${r0_ns}" "${measured_iters}")"
+    e0_ms_iter="$(ns_per_iter_to_ms "${e0_ns}" "${measured_iters}")"
+    t_iter_total_ms_iter="$(awk -v a="${k0_ms_iter}" -v b="${r0_ms_iter}" -v c="${e0_ms_iter}" 'BEGIN { printf "%.6f", a+b+c }')"
+    ants_per_s="$(awk -v ants="${nb_ants}" -v n="${measured_iters}" -v ns="${k0_ns}" 'BEGIN { if (ns > 0) printf "%.6f", (ants*n*1e9)/ns; else print "0.000000" }')"
+
     echo "${rep},${measured_iters},${k0_ns},${k4_ns},${k0_ms_iter},${k4_ms_iter}" >> "${RAW_CSV}"
+    echo "${rep},${measured_iters},${nb_ants},${render_enabled},${p0_ns},${p1_ns},${p2_ns},${k0_ns},${k1_ns},${k2_ns},${k3_ns},${k4_ns},${k5_ns},${r0_ns},${e0_ns},${p0_ms},${p1_ms},${p2_ms},${k0_ms_iter},${k1_ms_iter},${k2_ms_iter},${k3_ms_iter},${k4_ms_iter},${k5_ms_iter},${r0_ms_iter},${e0_ms_iter},${t_iter_total_ms_iter},${ants_per_s}" \
+      >> "${RAW_FULL_CSV}"
   done
 
   k0_stats="$(stats_for_column "${RAW_CSV}" "k0_ms_iter")"
   k4_stats="$(stats_for_column "${RAW_CSV}" "k4_ms_iter")"
   THREAD_K0_MEAN["${t}"]="$(split_stats "${k0_stats}" mean)"
   THREAD_K4_MEAN["${t}"]="$(split_stats "${k4_stats}" mean)"
+
+  mean_std_p0="$(stats_for_column "${RAW_FULL_CSV}" "p0_ms")"
+  mean_std_p1="$(stats_for_column "${RAW_FULL_CSV}" "p1_ms")"
+  mean_std_p2="$(stats_for_column "${RAW_FULL_CSV}" "p2_ms")"
+  mean_std_k0="$(stats_for_column "${RAW_FULL_CSV}" "k0_ms_iter")"
+  mean_std_k1="$(stats_for_column "${RAW_FULL_CSV}" "k1_ms_iter")"
+  mean_std_k2="$(stats_for_column "${RAW_FULL_CSV}" "k2_ms_iter")"
+  mean_std_k3="$(stats_for_column "${RAW_FULL_CSV}" "k3_ms_iter")"
+  mean_std_k4="$(stats_for_column "${RAW_FULL_CSV}" "k4_ms_iter")"
+  mean_std_k5="$(stats_for_column "${RAW_FULL_CSV}" "k5_ms_iter")"
+  mean_std_r0="$(stats_for_column "${RAW_FULL_CSV}" "r0_ms_iter")"
+  mean_std_e0="$(stats_for_column "${RAW_FULL_CSV}" "e0_ms_iter")"
+  mean_std_total="$(stats_for_column "${RAW_FULL_CSV}" "t_iter_total_ms_iter")"
+  mean_std_ants="$(stats_for_column "${RAW_FULL_CSV}" "ants_per_s")"
+
+  mean_k0="$(split_stats "${mean_std_k0}" mean)"
+  mean_k1="$(split_stats "${mean_std_k1}" mean)"
+  mean_k4="$(split_stats "${mean_std_k4}" mean)"
+
+  TABLE_A_CSV="${THREAD_DIR}/table_a.csv"
+  cat > "${TABLE_A_CSV}" <<'CSV'
+Parte,ms_iter_promedio,desviacion_std,porcentaje_sobre_kernel
+CSV
+
+  for part in K1 K2 K3 K4 K5; do
+    mean_std_var="mean_std_${part,,}"
+    mean_val="$(split_stats "${!mean_std_var}" mean)"
+    std_val="$(split_stats "${!mean_std_var}" std)"
+    pct_val="$(awk -v m="${mean_val}" -v k0="${mean_k0}" 'BEGIN { if (k0>0) printf "%.4f", (100.0*m)/k0; else print "0.0000" }')"
+    echo "${part},${mean_val},${std_val},${pct_val}" >> "${TABLE_A_CSV}"
+  done
+
+  echo "R0 (fuera de kernel),$(split_stats "${mean_std_r0}" mean),$(split_stats "${mean_std_r0}" std),n/a" >> "${TABLE_A_CSV}"
+  echo "E0 (fuera de kernel),$(split_stats "${mean_std_e0}" mean),$(split_stats "${mean_std_e0}" std),n/a" >> "${TABLE_A_CSV}"
+
+  TABLE_B_CSV="${THREAD_DIR}/table_b.csv"
+  {
+    echo "repeticion,T_iter_total_ms,T_kernel_ms,T_render_ms,hormigas_por_s"
+    awk -F, '
+      NR==1 {
+        for (i=1; i<=NF; ++i) idx[$i]=i;
+        next;
+      }
+      {
+        print $idx["rep"] "," $idx["t_iter_total_ms_iter"] "," $idx["k0_ms_iter"] "," $idx["r0_ms_iter"] "," $idx["ants_per_s"];
+      }' "${RAW_FULL_CSV}"
+    echo "Media,$(split_stats "${mean_std_total}" mean),${mean_k0},$(split_stats "${mean_std_r0}" mean),$(split_stats "${mean_std_ants}" mean)"
+    echo "Desviacion estandar,$(split_stats "${mean_std_total}" std),$(split_stats "${mean_std_k0}" std),$(split_stats "${mean_std_r0}" std),$(split_stats "${mean_std_ants}" std)"
+  } > "${TABLE_B_CSV}"
+
+  INIT_TIMES_CSV="${THREAD_DIR}/init_times.csv"
+  {
+    echo "parte,ms_promedio,desviacion_std"
+    echo "P0,$(split_stats "${mean_std_p0}" mean),$(split_stats "${mean_std_p0}" std)"
+    echo "P1,$(split_stats "${mean_std_p1}" mean),$(split_stats "${mean_std_p1}" std)"
+    echo "P2,$(split_stats "${mean_std_p2}" mean),$(split_stats "${mean_std_p2}" std)"
+  } > "${INIT_TIMES_CSV}"
+
+  {
+    echo "thread=${t}"
+    echo "mean_k0_ms_iter=${mean_k0}"
+    echo "mean_k1_ms_iter=${mean_k1}"
+    echo "mean_k4_ms_iter=${mean_k4}"
+    echo "note_k2_k3=In OpenMP runs, K2/K3 are thread-accumulated and not strict wall-time."
+  } > "${THREAD_DIR}/summary_thread.env"
 
   echo "${t},${REPS},${THREAD_K0_MEAN[${t}]},$(split_stats "${k0_stats}" std),${THREAD_K4_MEAN[${t}]},$(split_stats "${k4_stats}" std),pending" >> "${SUMMARY_CSV}"
 done
