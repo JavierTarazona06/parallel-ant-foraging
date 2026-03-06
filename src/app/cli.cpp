@@ -35,6 +35,7 @@ void print_usage(const char* exe_name)
     std::cout << "Usage: " << exe_name
               << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
               << " [--exec <serial|omp|mpi1|mpi2>]"
+              << " [--threads N]"
               << " [--ants N] [--seed N] [--alpha X] [--beta X] [--epsilon X] [--init <nest|uniform>]\n";
 }
 
@@ -53,6 +54,14 @@ bool parse_size_value(const char* text, std::size_t& value_out)
     }
     value_out = static_cast<std::size_t>(parsed);
     return true;
+}
+
+bool parse_positive_size_value(const char* text, std::size_t& value_out)
+{
+    if (!parse_size_value(text, value_out)) {
+        return false;
+    }
+    return value_out > 0;
 }
 
 bool parse_layout_value(const std::string& text, AntLayout& layout_out)
@@ -184,6 +193,24 @@ std::optional<ParsedConfig> parse_args(int nargs, char* argv[])
                 std::cerr << "Invalid value for --exec (expected serial|omp|mpi1|mpi2)\n";
                 return std::nullopt;
             }
+            continue;
+        }
+        if (arg == "--threads") {
+            std::size_t threads = 0;
+            if (i + 1 >= nargs || !parse_positive_size_value(argv[++i], threads)) {
+                std::cerr << "Invalid value for --threads (expected integer > 0)\n";
+                return std::nullopt;
+            }
+            parsed.run.threads = threads;
+            continue;
+        }
+        if (arg.rfind("--threads=", 0) == 0) {
+            std::size_t threads = 0;
+            if (!parse_positive_size_value(arg.substr(10).c_str(), threads)) {
+                std::cerr << "Invalid value for --threads (expected integer > 0)\n";
+                return std::nullopt;
+            }
+            parsed.run.threads = threads;
             continue;
         }
         if (arg == "--ants") {

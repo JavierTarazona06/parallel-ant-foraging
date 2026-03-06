@@ -19,6 +19,7 @@ struct RunConfig {
     bool render{true};
     AntLayout layout{AntLayout::aos};
     ExecModel exec_model{ExecModel::serial};
+    std::optional<std::size_t> threads{};
 };
 
 struct SimConfig {

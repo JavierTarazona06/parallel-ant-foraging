@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -16,12 +17,36 @@
 #include "timing_profile.hpp"
 #include "window.hpp"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 namespace {
 
-void print_startup_header(const RunConfig& run_config, const SimConfig& sim_config)
+std::size_t configure_thread_count(const RunConfig& run_config)
+{
+    if (run_config.exec_model != ExecModel::omp) {
+        return 1u;
+    }
+
+#ifdef _OPENMP
+    if (run_config.threads.has_value()) {
+        const std::size_t requested = run_config.threads.value();
+        const std::size_t capped = std::min(requested, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+        omp_set_num_threads(static_cast<int>(capped));
+    }
+    const int active_threads = omp_get_max_threads();
+    return (active_threads > 0) ? static_cast<std::size_t>(active_threads) : 1u;
+#else
+    return run_config.threads.value_or(1u);
+#endif
+}
+
+void print_startup_header(const RunConfig& run_config, const SimConfig& sim_config, std::size_t thread_count)
 {
     if (run_config.benchmark) {
         std::cout << "METRIC exec " << exec_model_to_text(run_config.exec_model) << '\n';
+        std::cout << "METRIC threads " << thread_count << '\n';
         std::cout << "METRIC layout " << layout_to_text(run_config.layout) << '\n';
         std::cout << "METRIC ants " << sim_config.ants << '\n';
         std::cout << "METRIC alpha " << sim_config.alpha << '\n';
@@ -31,6 +56,7 @@ void print_startup_header(const RunConfig& run_config, const SimConfig& sim_conf
         std::cout << "METRIC init " << init_mode_to_text(sim_config.init_mode) << '\n';
     } else {
         std::cout << "INFO exec=" << exec_model_to_text(run_config.exec_model)
+                  << " threads=" << thread_count
                   << " layout=" << layout_to_text(run_config.layout)
                   << " ants=" << sim_config.ants
                   << " alpha=" << sim_config.alpha
@@ -113,13 +139,14 @@ int main(int nargs, char* argv[])
 
     const RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
+    const std::size_t thread_count = configure_thread_count(run_config);
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return 1;
     }
 
-    print_startup_header(run_config, sim_config);
+    print_startup_header(run_config, sim_config, thread_count);
 
     MeasurementTotals totals;
 
