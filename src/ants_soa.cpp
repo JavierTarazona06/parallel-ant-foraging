@@ -21,7 +21,6 @@ inline void advance_one_ant_soa(const fractal_land& land, pheronome& phen,
 
     while (consumed_time < 1.) {
         const std::uint64_t ant_step_start_ns = profile.start(TimingSection::k2);
-
         const int ind_pher = (state == 1u) ? 1 : 0;
         const double choix = rand_double(0., 1., seed);
         std::int32_t new_x = x;

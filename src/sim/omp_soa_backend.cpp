@@ -17,8 +17,6 @@ struct ThreadTouchedCells {
     std::vector<std::size_t> touched_v1;
     std::vector<std::size_t> touched_v2;
     std::size_t food_delta{0};
-    std::uint64_t k2_ns{0};
-    std::uint64_t k3_ns{0};
 };
 
 inline std::size_t flat_cell_index(std::int32_t x, std::int32_t y, std::size_t stride)
@@ -52,8 +50,6 @@ inline void advance_one_ant_soa_omp(const fractal_land& land,
     double consumed_time = 0.;
 
     while (consumed_time < 1.) {
-        const std::uint64_t ant_step_start_ns = profile_now_ns();
-
         const int ind_pher = (state == 1u) ? 1 : 0;
         const double choix = rand_double(0., 1., seed);
         std::int32_t new_x = x;
@@ -99,18 +95,13 @@ inline void advance_one_ant_soa_omp(const fractal_land& land,
         }
 
         consumed_time += land(static_cast<unsigned long>(new_x), static_cast<unsigned long>(new_y));
-        local.k2_ns += (profile_now_ns() - ant_step_start_ns);
 
-        const std::uint64_t mark_start_ns = profile_now_ns();
         const std::size_t touched_idx = flat_cell_index(new_x, new_y, stride);
         if (ind_pher == 0) {
             local.touched_v1.push_back(touched_idx);
         } else {
             local.touched_v2.push_back(touched_idx);
         }
-        local.k3_ns += (profile_now_ns() - mark_start_ns);
-
-        const std::uint64_t k2_tail_start_ns = profile_now_ns();
         x = new_x;
         y = new_y;
 
@@ -123,8 +114,6 @@ inline void advance_one_ant_soa_omp(const fractal_land& land,
         if ((x == food_x) && (y == food_y)) {
             state = 1u;
         }
-
-        local.k2_ns += (profile_now_ns() - k2_tail_start_ns);
     }
 
     ants.x[ant_index] = x;
@@ -157,8 +146,6 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
         local.touched_v1.clear();
         local.touched_v2.clear();
         local.food_delta = 0;
-        local.k2_ns = 0;
-        local.k3_ns = 0;
 
         const std::size_t chunk = (m_ants.size() + static_cast<std::size_t>(max_threads) - 1u) /
                                   static_cast<std::size_t>(max_threads);
@@ -174,14 +161,10 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     }
 
     std::size_t merged_food_delta = 0;
-    std::uint64_t merged_k2_ns = 0;
-    std::uint64_t merged_k3_ns = 0;
     std::size_t total_touched_v1 = 0;
     std::size_t total_touched_v2 = 0;
     for (const ThreadTouchedCells& local : per_thread) {
         merged_food_delta += local.food_delta;
-        merged_k2_ns += local.k2_ns;
-        merged_k3_ns += local.k3_ns;
         total_touched_v1 += local.touched_v1.size();
         total_touched_v2 += local.touched_v2.size();
     }
@@ -196,7 +179,6 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
         merged_touched_v2.insert(merged_touched_v2.end(), local.touched_v2.begin(), local.touched_v2.end());
     }
 
-    const std::uint64_t mark_merge_start_ns = profile_now_ns();
     std::sort(merged_touched_v1.begin(), merged_touched_v1.end());
     merged_touched_v1.erase(std::unique(merged_touched_v1.begin(), merged_touched_v1.end()), merged_touched_v1.end());
 
@@ -211,11 +193,8 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     for (const std::size_t idx : merged_touched_v2) {
         replay_mark_from_index(world.phen, idx, stride);
     }
-    merged_k3_ns += (profile_now_ns() - mark_merge_start_ns);
 
     world.food_quantity += merged_food_delta;
-    world.profile.add(TimingSection::k2, merged_k2_ns);
-    world.profile.add(TimingSection::k3, merged_k3_ns);
 
     const std::uint64_t t1_ns = profile_now_ns();
 
