@@ -14,7 +14,7 @@ bool is_root();
 
 void allreduce_max_double_array(double* ptr, std::size_t n);
 std::uint64_t allreduce_sum_uint64(std::uint64_t value);
+std::uint64_t allreduce_max_uint64(std::uint64_t value);
 double allreduce_max_double(double value);
 
 } // namespace mpi_runtime
-

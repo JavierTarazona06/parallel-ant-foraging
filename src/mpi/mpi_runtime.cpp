@@ -88,6 +88,17 @@ std::uint64_t allreduce_sum_uint64(std::uint64_t value)
     return static_cast<std::uint64_t>(global);
 }
 
+std::uint64_t allreduce_max_uint64(std::uint64_t value)
+{
+    if (!mpi_is_initialized() || mpi_is_finalized()) {
+        return value;
+    }
+    unsigned long long local = static_cast<unsigned long long>(value);
+    unsigned long long global = 0ULL;
+    MPI_Allreduce(&local, &global, 1, MPI_UNSIGNED_LONG_LONG, MPI_MAX, MPI_COMM_WORLD);
+    return static_cast<std::uint64_t>(global);
+}
+
 double allreduce_max_double(double value)
 {
     if (!mpi_is_initialized() || mpi_is_finalized()) {
@@ -99,4 +110,3 @@ double allreduce_max_double(double value)
 }
 
 } // namespace mpi_runtime
-

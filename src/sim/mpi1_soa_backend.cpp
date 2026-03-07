@@ -26,14 +26,17 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     const std::size_t begin = mpi_rank * base + std::min(mpi_rank, remainder);
     const std::size_t end = begin + base + (mpi_rank < remainder ? 1u : 0u);
     std::size_t food_delta_local = 0;
+    std::uint64_t mpi_sync_ns = 0;
 
     // MPI1 phase 1: each rank only advances its local ant block.
     advance_ants_soa_range(world.land, world.phen, sim_config.pos_nest.x, sim_config.pos_nest.y, sim_config.pos_food.x,
                            sim_config.pos_food.y, m_ants, begin, end, sim_config.epsilon, food_delta_local,
                            world.profile, world.iter_timing);
 
+    const std::uint64_t food_sync_start_ns = profile_now_ns();
     const std::uint64_t food_delta_global_u64 =
         mpi_runtime::allreduce_sum_uint64(static_cast<std::uint64_t>(food_delta_local));
+    mpi_sync_ns += (profile_now_ns() - food_sync_start_ns);
     world.food_quantity += static_cast<std::size_t>(food_delta_global_u64);
 
     const std::uint64_t evap_start_ns = profile_now_ns();
@@ -43,12 +46,15 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     world.phen.update();
     const std::uint64_t update_end_ns = profile_now_ns();
 
+    const std::uint64_t phen_sync_start_ns = profile_now_ns();
     mpi_runtime::allreduce_max_double_array(world.phen.v1_data(), world.phen.v1_size());
     mpi_runtime::allreduce_max_double_array(world.phen.v2_data(), world.phen.v2_size());
+    mpi_sync_ns += (profile_now_ns() - phen_sync_start_ns);
 
     if (world.iter_timing != nullptr) {
         world.iter_timing->k4_ns += (evap_end_ns - evap_start_ns);
         world.iter_timing->k5_ns += (update_end_ns - evap_end_ns);
+        world.iter_timing->k_mpi_sync_ns += mpi_sync_ns;
     }
 }
 

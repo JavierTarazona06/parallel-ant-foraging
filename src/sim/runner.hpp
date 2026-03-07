@@ -21,6 +21,7 @@ struct MeasurementTotals {
     std::uint64_t k3_ns{0};
     std::uint64_t k4_ns{0};
     std::uint64_t k5_ns{0};
+    std::uint64_t k_mpi_sync_ns{0};
     std::uint64_t r0_ns{0};
     std::uint64_t e0_ns{0};
     std::size_t measured_iterations{0};

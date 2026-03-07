@@ -154,7 +154,9 @@ int main(int nargs, char* argv[])
         return 1;
     }
 
-    print_startup_header(run_config, sim_config, thread_count);
+    if (!use_mpi || mpi_runtime::is_root()) {
+        print_startup_header(run_config, sim_config, thread_count);
+    }
 
     MeasurementTotals totals;
 

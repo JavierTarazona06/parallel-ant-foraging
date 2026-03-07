@@ -7,6 +7,7 @@
 #include <SDL2/SDL.h>
 
 #include "../fractal_land.hpp"
+#include "../mpi/mpi_runtime.hpp"
 #include "../timing_profile.hpp"
 #include "backend.hpp"
 #include "../renderer.hpp"
@@ -23,6 +24,7 @@ void run_benchmark(const RunConfig& run_config,
                    std::size_t& food_quantity,
                    MeasurementTotals& totals)
 {
+    const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1);
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
@@ -58,6 +60,7 @@ void run_benchmark(const RunConfig& run_config,
             totals.k3_ns += iter_timing.k3_ns;
             totals.k4_ns += iter_timing.k4_ns;
             totals.k5_ns += iter_timing.k5_ns;
+            totals.k_mpi_sync_ns += iter_timing.k_mpi_sync_ns;
             totals.touched_raw_total += iter_timing.touched_raw_count;
             totals.touched_unique_total += iter_timing.touched_unique_count;
             totals.measured_iterations += 1;
@@ -86,6 +89,32 @@ void run_benchmark(const RunConfig& run_config,
     totals.phen_v1_max = (v1.empty() ? 0.0 : *std::max_element(v1.begin(), v1.end()));
     totals.phen_v2_max = (v2.empty() ? 0.0 : *std::max_element(v2.begin(), v2.end()));
 
+    if (mpi_mode) {
+        totals.p0_ns = mpi_runtime::allreduce_max_uint64(totals.p0_ns);
+        totals.p1_ns = mpi_runtime::allreduce_max_uint64(totals.p1_ns);
+        totals.p2_ns = mpi_runtime::allreduce_max_uint64(totals.p2_ns);
+        totals.k0_ns = mpi_runtime::allreduce_max_uint64(totals.k0_ns);
+        totals.k1_ns = mpi_runtime::allreduce_max_uint64(totals.k1_ns);
+        totals.k2_ns = mpi_runtime::allreduce_max_uint64(totals.k2_ns);
+        totals.k3_ns = mpi_runtime::allreduce_max_uint64(totals.k3_ns);
+        totals.k4_ns = mpi_runtime::allreduce_max_uint64(totals.k4_ns);
+        totals.k5_ns = mpi_runtime::allreduce_max_uint64(totals.k5_ns);
+        totals.k_mpi_sync_ns = mpi_runtime::allreduce_max_uint64(totals.k_mpi_sync_ns);
+        totals.r0_ns = mpi_runtime::allreduce_max_uint64(totals.r0_ns);
+        totals.e0_ns = mpi_runtime::allreduce_max_uint64(totals.e0_ns);
+        totals.touched_raw_total = mpi_runtime::allreduce_sum_uint64(totals.touched_raw_total);
+        totals.touched_unique_total = mpi_runtime::allreduce_sum_uint64(totals.touched_unique_total);
+        totals.food_quantity_final = static_cast<std::size_t>(
+            mpi_runtime::allreduce_max_uint64(static_cast<std::uint64_t>(totals.food_quantity_final)));
+        const std::uint64_t monotonic_ok_local = totals.food_monotonic_ok ? 1u : 0u;
+        const std::uint64_t monotonic_ok_count = mpi_runtime::allreduce_sum_uint64(monotonic_ok_local);
+        totals.food_monotonic_ok = (monotonic_ok_count == static_cast<std::uint64_t>(mpi_runtime::size()));
+    }
+
+    if (mpi_mode && !mpi_runtime::is_root()) {
+        return;
+    }
+
     std::cout << "METRIC measured_iterations " << totals.measured_iterations << '\n';
     std::cout << "METRIC total_iterations " << run_config.iterations << '\n';
     std::cout << "METRIC warmup_iterations " << run_config.warmup << '\n';
@@ -100,6 +129,9 @@ void run_benchmark(const RunConfig& run_config,
     std::cout << "METRIC k3_ns " << totals.k3_ns << '\n';
     std::cout << "METRIC k4_ns " << totals.k4_ns << '\n';
     std::cout << "METRIC k5_ns " << totals.k5_ns << '\n';
+    if (mpi_mode) {
+        std::cout << "METRIC k_mpi_sync_ns " << totals.k_mpi_sync_ns << '\n';
+    }
     std::cout << "METRIC r0_ns " << totals.r0_ns << '\n';
     std::cout << "METRIC e0_ns " << totals.e0_ns << '\n';
     std::cout << "METRIC touched_raw_total " << totals.touched_raw_total << '\n';
