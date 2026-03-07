@@ -2,6 +2,11 @@ include Make_linux.inc
 #include Make_msys2.inc
 #include Make_osx.inc
 
+# Build through MPI wrapper when available so mpi.h symbols link cleanly.
+ifneq ($(strip $(MPICXX)),)
+CXX := $(MPICXX)
+endif
+
 CXXFLAGS = -std=c++17
 
 # Debug mode is enabled only for explicit truthy values.
