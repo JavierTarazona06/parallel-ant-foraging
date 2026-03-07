@@ -194,6 +194,12 @@ int main(int nargs, char* argv[])
     std::unique_ptr<Window> win;
     std::unique_ptr<Renderer> renderer;
     bool render_enabled = run_config.render;
+    if (use_mpi && render_enabled) {
+        if (mpi_runtime::is_root()) {
+            std::cerr << "INFO mpi1: forcing no-render\n";
+        }
+        render_enabled = false;
+    }
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);
         if (win->is_ready()) {
