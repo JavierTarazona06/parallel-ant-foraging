@@ -50,3 +50,19 @@ void advance_time_soa(const fractal_land& land, pheronome& phen,
                       AntsSoA& ants, double eps, std::size_t& food_counter,
                       TimingProfile& profile,
                       IterTimingNs* iter_timing = nullptr);
+
+void advance_time_soa_range(const fractal_land& land, pheronome& phen,
+                            std::int32_t nest_x, std::int32_t nest_y,
+                            std::int32_t food_x, std::int32_t food_y,
+                            AntsSoA& ants, std::size_t begin, std::size_t end,
+                            double eps, std::size_t& food_counter,
+                            TimingProfile& profile,
+                            IterTimingNs* iter_timing = nullptr);
+
+void advance_ants_soa_range(const fractal_land& land, pheronome& phen,
+                            std::int32_t nest_x, std::int32_t nest_y,
+                            std::int32_t food_x, std::int32_t food_y,
+                            AntsSoA& ants, std::size_t begin, std::size_t end,
+                            double eps, std::size_t& food_counter,
+                            TimingProfile& profile,
+                            IterTimingNs* iter_timing = nullptr);
