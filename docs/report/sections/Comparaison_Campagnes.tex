@@ -1,0 +1,58 @@
+\section{Comparaison des campagnes (ancienne machine vs campagne locale)}
+
+\subsection{Objectif}
+
+Les sections précédentes ont été mises à jour avec des mesures locales (cette machine).
+Cette section compare les indicateurs clés avec les valeurs historiques présentes dans la version
+précédente du rapport (campagnes d'une autre machine et d'un état de code antérieur), afin
+d'expliquer pourquoi certaines performances augmentent ou diminuent.
+
+\subsection{Comparaison synthétique}
+
+\begin{table}[H]
+\centering
+\caption{Écarts entre ancienne campagne et campagne locale}
+\label{tab:campagne-compare}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Indicateur} & \textbf{Ancienne campagne} & \textbf{Campagne locale} & \textbf{Écart} \\
+\midrule
+Baseline \(K0\) (ms/iter) & 3.979834 & 8.041472 & \(+102.1\%\) \\
+Vectorisation \(\Delta_{\%}(K0)\) SoA vs AoS & \(+0.034\%\) & \(+6.179\%\) & \(+6.145\) points \\
+OpenMP \(S(8)\) & 1.697653 & 2.436151 & \(+43.5\%\) \\
+OpenMP \(K0@1\) (ms/iter) & 2.555276 & 8.684056 & \(+239.8\%\) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Interprétation des écarts}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Différence de machine et d'environnement d'exécution.}
+  Les performances absolues dépendent fortement du CPU, de la mémoire, du niveau de charge de la
+  machine et de l'environnement (ici WSL2). Il est donc normal que les temps absolus changent
+  sensiblement entre deux machines.
+
+  \item \textbf{Évolution du code entre campagnes.}
+  Cette version n'est pas strictement identique à l'ancienne:
+  \begin{itemize}[leftmargin=*]
+    \item le backend OpenMP et le backend serial SoA partagent maintenant un coeur d'avance commun;
+    \item \(K2/K3\) sont activés en permanence comme \emph{work-time}, ce qui ajoute de
+    l'instrumentation interne et augmente les temps absolus;
+    \item le backend OMP conserve un coût structurel à 1 thread (buffers touched, merge, dedup, replay).
+  \end{itemize}
+  Ces changements améliorent la comparabilité méthodologique, mais ils modifient les valeurs absolues.
+
+  \item \textbf{Différence de protocole selon les sections.}
+  Baseline/Vectorisation sont mesurés avec rendu actif (\texttt{measure\_temps.sh}), alors que la
+  section OpenMP est mesurée en \texttt{--no-render} (\texttt{measure\_openmp.sh}). Les chiffres
+  absolus entre sections ne sont donc pas directement comparables.
+\end{enumerate}
+
+\subsection{Ce qui reste stable malgré les écarts}
+
+\begin{itemize}[leftmargin=*]
+  \item Le hotspot principal reste \(K1\) (avance des fourmis).
+  \item La vectorisation SoA seule ne garantit pas un speedup en mode séquentiel.
+  \item OpenMP apporte un speedup net avec le nombre de threads (\(S(8)>S(4)>S(2)>S(1)\)).
+\end{itemize}

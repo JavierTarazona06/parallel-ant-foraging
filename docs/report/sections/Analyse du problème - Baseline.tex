@@ -78,15 +78,13 @@ dans l'analyse du noyau de calcul.
 
 \noindent
 La stratégie instrumentale côté C++ s'appuie sur \texttt{timing\_profile.hpp} et
-\texttt{timing\_profile.cpp}. Le fichier \texttt{timing\_profile.cpp} instancie l'état global de
-profilage (\texttt{g\_timing\_profile\_totals}, \texttt{g\_timing\_profile\_enabled}), tandis que
-\texttt{timing\_profile.hpp} 
-fournit l'horloge monotone \\
-(\texttt{profile\_now\_ns}) 
-et les
-accumulateurs fins (\texttt{profile\_add\_k2}, \texttt{profile\_add\_k3}). L'accumulation des
-durées est effectuée bloc par bloc dans la boucle benchmark du simulateur, ce qui permet de
-séparer coûts d'initialisation, coûts noyau et coûts hors noyau.
+\texttt{timing\_profile.cpp}. Le profilage est désormais \emph{instance-based} (plus d'état
+mutable global partagé): chaque exécution benchmark manipule son objet \texttt{TimingProfile}
+et les compteurs d'itération \texttt{IterTimingNs}. \texttt{timing\_profile.hpp} fournit
+l'horloge monotone (\texttt{profile\_now\_ns}) utilisée pour les frontières de kernels
+(\(K0\), \(K1\), \(K4\), \(K5\)), tandis que \(K2/K3\) sont accumulés côté boucle agents
+comme temps de travail (\emph{work-time}) dans les métriques d'itération.
+Cette organisation sépare proprement coûts d'initialisation, coûts noyau et coûts hors noyau.
 
 \noindent
 L'automatisation est assurée par \texttt{scripts/measure\_temps.sh}. Le pipeline suit une
@@ -115,7 +113,7 @@ les biais d'interprétation.
 
 \noindent
 Les résultats présentés ci-dessous proviennent de la campagne de mesure:\\
-\texttt{results/test\_time\_measurements/20260225\_111731/summary.md}. La configuration utilisée
+\texttt{results/test\_time\_measurements\_local2/aos/latest/summary.md}. La configuration utilisée
 est la suivante: 5 répétitions, 1200 itérations par répétition, 200 itérations de
 \textit{warm-up}, 1000 itérations mesurées, et exécution avec \texttt{OMP\_NUM\_THREADS=1}.
 
@@ -127,9 +125,9 @@ est la suivante: 5 répétitions, 1200 itérations par répétition, 200 itérat
 \toprule
 \textbf{Partie} & \textbf{ms moyen} & \textbf{écart-type} \\
 \midrule
-P0 & 41.581492 & 0.852773 \\
-P1 & 0.891350 & 0.031879 \\
-P2 & 0.076836 & 0.010131 \\
+P0 & 8.222398 & 1.107389 \\
+P1 & 0.830145 & 0.541537 \\
+P2 & 0.171107 & 0.032904 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -142,13 +140,13 @@ P2 & 0.076836 & 0.010131 \\
 \toprule
 \textbf{Partie} & \textbf{ms/iter moyen} & \textbf{écart-type} & \textbf{\% kernel} \\
 \midrule
-K1 & 3.719856 & 0.005782 & 93.4676 \\
-K2 & 2.812386 & 0.005215 & 70.6659 \\
-K3 & 0.580826 & 0.002620 & 14.5942 \\
-K4 & 0.255192 & 0.004034 & 6.4121 \\
-K5 & 0.004597 & 0.000359 & 0.1155 \\
-R0 & 0.948657 & 0.011420 & n/a \\
-E0 & 0.001842 & 0.000113 & n/a \\
+K1 & 7.583137 & 0.803269 & 94.3004 \\
+K2 & 3.278775 & 0.344471 & 40.7733 \\
+K3 & 2.662628 & 0.413677 & 33.1112 \\
+K4 & 0.447192 & 0.087824 & 5.5611 \\
+K5 & 0.010333 & 0.002728 & 0.1285 \\
+R0 & 2.190812 & 0.341754 & n/a \\
+E0 & 0.005376 & 0.000923 & n/a \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -162,13 +160,13 @@ E0 & 0.001842 & 0.000113 & n/a \\
 \toprule
 \textbf{Répétition} & \textbf{T\_iter\_total (ms)} & \textbf{T\_kernel (ms)} & \textbf{T\_render (ms)} & \textbf{fourmis/s} \\
 \midrule
-1 & 4.951205 & 3.989457 & 0.959952 & 1253303.431806 \\
-2 & 4.951423 & 3.991688 & 0.957977 & 1252602.984471 \\
-3 & 4.915457 & 3.972775 & 0.940620 & 1258566.168530 \\
-4 & 4.934418 & 3.978167 & 0.954489 & 1256860.215796 \\
-5 & 4.899159 & 3.967081 & 0.930245 & 1260372.560533 \\
-Moyenne & 4.930332 & 3.979834 & 0.948657 & 1256341.072227 \\
-Écart-type & 0.020446 & 0.009470 & 0.011420 & 2989.114282 \\
+1 & 8.619821 & 6.832405 & 1.783345 & 731806.773612 \\
+2 & 11.077200 & 8.649231 & 2.422158 & 578086.088303 \\
+3 & 9.838528 & 7.800593 & 2.032789 & 640976.879203 \\
+4 & 9.514154 & 7.527849 & 1.981301 & 664200.401132 \\
+5 & 12.138599 & 9.397280 & 2.734469 & 532068.839698 \\
+Moyenne & 10.237660 & 8.041472 & 2.190812 & 629427.796390 \\
+Écart-type & 1.234388 & 0.893450 & 0.341754 & 69193.508032 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -176,7 +174,7 @@ Moyenne & 4.930332 & 3.979834 & 0.948657 & 1256341.072227 \\
 \noindent
 Fraction parallélisable candidate:
 \[
-F = (K1 + K4) / K0 = 0.998797
+F = (K1 + K4) / K0 = 0.997839
 \]
 
 \begin{table}[H]
@@ -187,10 +185,10 @@ F = (K1 + K4) / K0 = 0.998797
 \toprule
 \textbf{Threads} & \textbf{S(p)} \\
 \midrule
-2 & 1.997597 \\
-4 & 3.985616 \\
-8 & 7.933195 \\
-16 & 15.716398 \\
+2 & 1.995687 \\
+4 & 3.974235 \\
+8 & 7.880787 \\
+16 & 15.497644 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -208,22 +206,22 @@ bornes théoriques de gain.
 \begin{enumerate}[leftmargin=*]
     \item \textbf{Coûts d'initialisation (\(P0\text{--}P2\)).}
     Dans le tableau~\ref{tab:results-init}, \(P0\) domine très largement la phase
-    d'initialisation (\(41.581492\) ms), alors que \(P1\)
-    (\(0.891350\) ms) et \(P2\) (\(0.076836\) ms) restent faibles. Cette hiérarchie est cohérente
+    d'initialisation (\(8.222398\) ms), alors que \(P1\)
+    (\(0.830145\) ms) et \(P2\) (\(0.171107\) ms) restent faibles. Cette hiérarchie est cohérente
     avec le fait que la génération fractale du terrain est la tâche la plus lourde au démarrage.
     En revanche, comme \(P0\text{--}P2\) sont des coûts \textit{one-shot} hors boucle itérative,
     ils ne constituent pas la priorité principale pour améliorer le temps de simulation par itération.
 
     \item \textbf{Priorité de parallélisation au niveau noyau.}
-    D'après le tableau~\ref{tab:results-decomp}, \(K1\) représente \(93.4676\%\) du temps noyau,
+    D'après le tableau~\ref{tab:results-decomp}, \(K1\) représente \(94.3004\%\) du temps noyau,
     ce qui en fait la cible prioritaire.
     Le raisonnement est direct: réduire \(K1\) a l'impact potentiel maximal sur \(K0\),
     avant \(K4\) (évaporation) et \(K5\) (mise à jour de la carte de phéromones), dont les
     contributions relatives sont nettement plus faibles.
 
     \item \textbf{Décomposition interne de \(K1\): \(K2\) avant \(K3\).}
-    Toujours dans le tableau~\ref{tab:results-decomp}, \(K2\) pèse \(70.6659\%\) du noyau contre
-    \(14.5942\%\) pour \(K3\).
+    Toujours dans le tableau~\ref{tab:results-decomp}, \(K2\) pèse \(40.7733\%\) du noyau contre
+    \(33.1112\%\) pour \(K3\).
     L'ordre de priorité est donc de paralléliser d'abord \(K2\), puis \(K3\).
     Cela confirme que la logique de déplacement/décision des fourmis est plus coûteuse que le
     marquage des phéromones.
@@ -246,7 +244,7 @@ bornes théoriques de gain.
     \item \textbf{Lecture correcte de la prédiction d'Amdahl.}
     Le tableau~\ref{tab:results-amdahl} montre un potentiel de gain important avec l'augmentation
     du nombre
-    de threads. En particulier, \(S(16)=15.716398\) correspond à un facteur multiplicatif
+    de threads. En particulier, \(S(16)=15.497644\) correspond à un facteur multiplicatif
     d'environ \(\times 15.7\), et non à \(15\%\). Cette tendance soutient clairement la
     stratégie de parallélisation; la suite du projet doit donc viser d'abord \(K1\), puis \(K4\),
     pour se rapprocher de ce plafond théorique.
