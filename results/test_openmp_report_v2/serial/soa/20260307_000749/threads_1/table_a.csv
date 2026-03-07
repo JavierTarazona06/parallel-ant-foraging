@@ -1,0 +1,8 @@
+Parte,ms_iter_promedio,desviacion_std,porcentaje_sobre_kernel
+K1,7.662124,0.513540,93.3324
+K2,3.279478,0.214679,39.9473
+K3,2.682993,0.259020,32.6815
+K4,0.536595,0.061522,6.5363
+K5,0.009545,0.001927,0.1163
+R0 (fuera de kernel),0.000000,0.000000,n/a
+E0 (fuera de kernel),0.007633,0.000728,n/a
