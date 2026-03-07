@@ -184,6 +184,8 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
 
     std::sort(merged_touched_v2.begin(), merged_touched_v2.end());
     merged_touched_v2.erase(std::unique(merged_touched_v2.begin(), merged_touched_v2.end()), merged_touched_v2.end());
+    const std::size_t touched_raw_total = total_touched_v1 + total_touched_v2;
+    const std::size_t touched_unique_total = merged_touched_v1.size() + merged_touched_v2.size();
 
     // Replay marks only once per unique touched cell per channel outside
     // the OpenMP region to avoid races on the pheromone map.
@@ -208,6 +210,8 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k1_ns += (t1_ns - t0_ns);
         world.iter_timing->k4_ns += (t2_ns - t1_ns);
         world.iter_timing->k5_ns += (t3_ns - t2_ns);
+        world.iter_timing->touched_raw_count += touched_raw_total;
+        world.iter_timing->touched_unique_count += touched_unique_total;
     }
 }
 

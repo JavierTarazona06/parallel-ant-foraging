@@ -1,6 +1,8 @@
 #include "runner.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <numeric>
 
 #include <SDL2/SDL.h>
 
@@ -24,6 +26,7 @@ void run_benchmark(const RunConfig& run_config,
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
+    std::size_t previous_food_quantity = food_quantity;
 
     for (std::size_t it = 0; it < run_config.iterations; ++it) {
         const bool measured = (it >= run_config.warmup);
@@ -43,11 +46,18 @@ void run_benchmark(const RunConfig& run_config,
         backend.step(world, sim_config);
         const std::uint64_t k0_end_ns = profile_now_ns();
 
+        if (food_quantity < previous_food_quantity) {
+            totals.food_monotonic_ok = false;
+        }
+        previous_food_quantity = food_quantity;
+
         if (measured) {
             totals.k0_ns += (k0_end_ns - k0_start_ns);
             totals.k1_ns += iter_timing.k1_ns;
             totals.k4_ns += iter_timing.k4_ns;
             totals.k5_ns += iter_timing.k5_ns;
+            totals.touched_raw_total += iter_timing.touched_raw_count;
+            totals.touched_unique_total += iter_timing.touched_unique_count;
             totals.measured_iterations += 1;
         }
 
@@ -65,6 +75,14 @@ void run_benchmark(const RunConfig& run_config,
     profile.set_enabled(false);
     totals.k2_ns = profile.totals().k2_ns;
     totals.k3_ns = profile.totals().k3_ns;
+    totals.food_quantity_final = food_quantity;
+
+    const std::vector<double>& v1 = phen.v1_buffer();
+    const std::vector<double>& v2 = phen.v2_buffer();
+    totals.phen_v1_sum = std::accumulate(v1.begin(), v1.end(), 0.0);
+    totals.phen_v2_sum = std::accumulate(v2.begin(), v2.end(), 0.0);
+    totals.phen_v1_max = (v1.empty() ? 0.0 : *std::max_element(v1.begin(), v1.end()));
+    totals.phen_v2_max = (v2.empty() ? 0.0 : *std::max_element(v2.begin(), v2.end()));
 
     std::cout << "METRIC measured_iterations " << totals.measured_iterations << '\n';
     std::cout << "METRIC total_iterations " << run_config.iterations << '\n';
@@ -82,6 +100,26 @@ void run_benchmark(const RunConfig& run_config,
     std::cout << "METRIC k5_ns " << totals.k5_ns << '\n';
     std::cout << "METRIC r0_ns " << totals.r0_ns << '\n';
     std::cout << "METRIC e0_ns " << totals.e0_ns << '\n';
+    std::cout << "METRIC touched_raw_total " << totals.touched_raw_total << '\n';
+    std::cout << "METRIC touched_unique_total " << totals.touched_unique_total << '\n';
+    const double measured_iter = static_cast<double>(totals.measured_iterations);
+    const double touched_raw_per_iter =
+        (totals.measured_iterations > 0) ? (static_cast<double>(totals.touched_raw_total) / measured_iter) : 0.0;
+    const double touched_unique_per_iter =
+        (totals.measured_iterations > 0) ? (static_cast<double>(totals.touched_unique_total) / measured_iter) : 0.0;
+    const double touched_unique_ratio =
+        (totals.touched_raw_total > 0)
+            ? (static_cast<double>(totals.touched_unique_total) / static_cast<double>(totals.touched_raw_total))
+            : 0.0;
+    std::cout << "METRIC touched_raw_per_iter " << touched_raw_per_iter << '\n';
+    std::cout << "METRIC touched_unique_per_iter " << touched_unique_per_iter << '\n';
+    std::cout << "METRIC touched_unique_ratio " << touched_unique_ratio << '\n';
+    std::cout << "METRIC food_monotonic_ok " << (totals.food_monotonic_ok ? 1 : 0) << '\n';
+    std::cout << "METRIC food_quantity_final " << totals.food_quantity_final << '\n';
+    std::cout << "METRIC phen_v1_sum " << totals.phen_v1_sum << '\n';
+    std::cout << "METRIC phen_v2_sum " << totals.phen_v2_sum << '\n';
+    std::cout << "METRIC phen_v1_max " << totals.phen_v1_max << '\n';
+    std::cout << "METRIC phen_v2_max " << totals.phen_v2_max << '\n';
 }
 
 void run_interactive(const RunConfig& run_config,

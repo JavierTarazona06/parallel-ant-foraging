@@ -24,6 +24,14 @@ struct MeasurementTotals {
     std::uint64_t r0_ns{0};
     std::uint64_t e0_ns{0};
     std::size_t measured_iterations{0};
+    std::uint64_t touched_raw_total{0};
+    std::uint64_t touched_unique_total{0};
+    std::size_t food_quantity_final{0};
+    bool food_monotonic_ok{true};
+    double phen_v1_sum{0.0};
+    double phen_v2_sum{0.0};
+    double phen_v1_max{0.0};
+    double phen_v2_max{0.0};
 };
 
 void run_benchmark(const RunConfig& run_config,
