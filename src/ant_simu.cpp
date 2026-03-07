@@ -12,6 +12,7 @@
 #include "pheromone.hpp"
 #include "rand_generator.hpp"
 #include "renderer.hpp"
+#include "mpi/mpi_runtime.hpp"
 #include "sim/backend.hpp"
 #include "sim/runner.hpp"
 #include "timing_profile.hpp"
@@ -139,10 +140,17 @@ int main(int nargs, char* argv[])
 
     const RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
+    const bool use_mpi = (run_config.exec_model == ExecModel::mpi1);
+    if (use_mpi) {
+        mpi_runtime::init(&nargs, &argv);
+    }
     const std::size_t thread_count = configure_thread_count(run_config);
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
+        if (use_mpi) {
+            mpi_runtime::finalize();
+        }
         return 1;
     }
 
@@ -175,6 +183,9 @@ int main(int nargs, char* argv[])
     std::unique_ptr<Backend> backend = make_backend(run_config, sim_config, backend_factory_world, ants_aos, ants_soa);
     if (!backend) {
         SDL_Quit();
+        if (use_mpi) {
+            mpi_runtime::finalize();
+        }
         return 1;
     }
 
@@ -199,5 +210,8 @@ int main(int nargs, char* argv[])
     }
 
     SDL_Quit();
+    if (use_mpi) {
+        mpi_runtime::finalize();
+    }
     return 0;
 }
