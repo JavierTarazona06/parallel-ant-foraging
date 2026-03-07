@@ -167,6 +167,7 @@ int main(int nargs, char* argv[])
     totals.p2_ns = profile_now_ns() - p2_start_ns;
 
     pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, sim_config.alpha, sim_config.beta);
+    phen.set_openmp_evaporation_enabled(run_config.exec_model == ExecModel::omp);
     std::size_t food_quantity = 0;
     TimingProfile backend_factory_profile;
     backend_factory_profile.reset();

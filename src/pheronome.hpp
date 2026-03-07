@@ -117,8 +117,32 @@ public:
 
     std::size_t cell_count() const { return m_map_v1.size(); }
 
+    void set_openmp_evaporation_enabled(bool enabled)
+    {
+        m_use_openmp_evaporation = enabled;
+    }
+
     void do_evaporation( ) {
-        #pragma omp parallel for collapse(2) schedule(static)
+        if (m_use_openmp_evaporation) {
+#ifdef _OPENMP
+            #pragma omp parallel for collapse(2) schedule(static)
+            for ( std::size_t i = 1; i <= m_dim; ++i )
+                for ( std::size_t j = 1; j <= m_dim; ++j ) {
+                    const std::size_t idx = i * m_stride + j;
+                    m_buffer_v1[idx] *= m_beta;
+                    m_buffer_v2[idx] *= m_beta;
+                }
+#else
+            for ( std::size_t i = 1; i <= m_dim; ++i )
+                for ( std::size_t j = 1; j <= m_dim; ++j ) {
+                    const std::size_t idx = i * m_stride + j;
+                    m_buffer_v1[idx] *= m_beta;
+                    m_buffer_v2[idx] *= m_beta;
+                }
+#endif
+            return;
+        }
+
         for ( std::size_t i = 1; i <= m_dim; ++i )
             for ( std::size_t j = 1; j <= m_dim; ++j ) {
                 const std::size_t idx = i * m_stride + j;
@@ -224,6 +248,7 @@ private:
     std::vector<std::uint32_t> m_mark_epoch;
     std::uint32_t m_epoch;
     position_t m_pos_nest, m_pos_food;
+    bool m_use_openmp_evaporation{false};
 };
 
 #endif

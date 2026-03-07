@@ -54,6 +54,8 @@ void run_benchmark(const RunConfig& run_config,
         if (measured) {
             totals.k0_ns += (k0_end_ns - k0_start_ns);
             totals.k1_ns += iter_timing.k1_ns;
+            totals.k2_ns += iter_timing.k2_ns;
+            totals.k3_ns += iter_timing.k3_ns;
             totals.k4_ns += iter_timing.k4_ns;
             totals.k5_ns += iter_timing.k5_ns;
             totals.touched_raw_total += iter_timing.touched_raw_count;
@@ -73,8 +75,8 @@ void run_benchmark(const RunConfig& run_config,
     }
 
     profile.set_enabled(false);
-    totals.k2_ns = profile.totals().k2_ns;
-    totals.k3_ns = profile.totals().k3_ns;
+    totals.k2_ns += profile.totals().k2_ns;
+    totals.k3_ns += profile.totals().k3_ns;
     totals.food_quantity_final = food_quantity;
 
     const std::vector<double>& v1 = phen.v1_buffer();
