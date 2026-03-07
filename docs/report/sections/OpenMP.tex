@@ -1,0 +1,353 @@
+\section{Parallélisation en mémoire partagée (OpenMP)}
+
+\subsection{Stratégie retenue}
+
+\subsubsection{Objectif}
+
+Après la vectorisation (layout SoA), l'objectif du point OpenMP est de réduire le temps noyau
+\(K0\) en parallélisant des boucles à fort coût, tout en conservant une sortie benchmark
+reproductible (\texttt{METRIC ...}) pour l'analyse de speedup.
+
+\subsubsection{Choix d'architecture}
+
+L'implémentation OpenMP est portée par le backend \texttt{omp+soa}
+(\texttt{src/sim/omp\_soa\_backend.cpp}) et sélectionnée via:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{--exec omp}
+  \item \texttt{--layout soa}
+\end{itemize}
+
+Le backend \texttt{omp+aos} a été volontairement retiré pour rester aligné avec le fil logique de
+la consigne (vectoriser, puis paralléliser la version vectorisée).
+
+\subsubsection{Boucles parallélisées}
+
+\begin{enumerate}[leftmargin=*]
+  \item \textbf{Évaporation des phéromones (\(K4\)).}
+  La fonction \texttt{do\_evaporation()} (dans \texttt{src/pheronome.hpp}) applique
+  \texttt{\#pragma omp parallel for collapse(2) schedule(static)} sur le balayage de grille.
+  Chaque cellule est indépendante pendant cette phase; il n'y a donc pas de conflit d'écriture.
+
+  \item \textbf{Avance des fourmis (\(K1\)) avec buffers locaux par thread.}
+  Dans \texttt{OmpSoaBackend::step}, la boucle sur les indices de fourmis est parallélisée avec
+  \texttt{\#pragma omp for schedule(static)}. Pendant la région parallèle, un thread:
+  \begin{itemize}[leftmargin=*]
+    \item met à jour ses fourmis locales (\texttt{x[i], y[i], state[i], seed[i]}),
+    \item enregistre les cellules touchées dans \texttt{touched\_v1/touched\_v2},
+    \item accumule son \texttt{food\_delta} local.
+  \end{itemize}
+  Aucune écriture globale de phéromone n'est faite à l'intérieur de la région parallèle.
+\end{enumerate}
+
+\subsubsection{Correctness et absence de data races}
+
+Les points sensibles en mémoire partagée sont:
+\begin{itemize}[leftmargin=*]
+  \item la carte de phéromones (écritures concurrentes potentielles),
+  \item le compteur global \texttt{food\_quantity} (incréments concurrents).
+\end{itemize}
+
+Le schéma retenu évite ces conflits:
+\begin{itemize}[leftmargin=*]
+  \item chaque thread écrit uniquement dans ses structures locales
+  (\texttt{touched\_v1/touched\_v2}, \texttt{food\_delta}),
+  \item les deltas de nourriture sont fusionnés après la région parallèle,
+  \item les marquages de phéromones sont rejoués séquentiellement sur la carte globale.
+\end{itemize}
+
+On évite ainsi les \emph{write/write races} sur la grille et les \emph{read/modify/write races}
+sur le compteur de nourriture.
+
+\subsubsection{Réduction sparse et robustesse d'ordre}
+
+Après la région parallèle:
+\begin{enumerate}[leftmargin=*]
+  \item concaténation des vecteurs \texttt{touched} de tous les threads,
+  \item tri + \texttt{unique} pour ne garder qu'une fois chaque cellule,
+  \item application séquentielle des marques sur la carte globale.
+\end{enumerate}
+
+Ce schéma est cohérent avec la modification de \texttt{mark\_pheronome} vers une mise à jour
+idempotente par itération (type MAX). Cela suit l'esprit de l'énoncé: l'ordre de traitement
+des fourmis peut être arbitraire en parallèle, et la politique de fusion par maximum sert à
+rendre le résultat robuste à cet ordre. Cette propriété est aussi utile pour les futures
+réductions globales (OpenMP/MPI).
+
+\subsubsection{Profilage OpenMP-safe}
+
+Pour éviter les courses sur les accumulateurs de profilage, les mesures fines dans les régions
+parallèles ont été retirées. Le profilage est conservé aux frontières de kernels
+(\(K1\), \(K4\), \(K5\)).
+
+Plus précisément, en version serial, \(K2\) et \(K3\) étaient incrémentés à très haute fréquence
+dans la logique interne de chaque fourmi (\(K2\): décision/déplacement; \(K3\): marquage).
+En OpenMP, cette instrumentation se trouve à l'intérieur de la région parallèle. Si on la conserve
+telle quelle, deux problèmes apparaissent:
+\begin{itemize}[leftmargin=*]
+  \item \textbf{problème de sûreté/concurrence:} plusieurs threads mettraient à jour les mêmes
+  accumulateurs (race), ce qui imposerait des \texttt{atomic}/\texttt{critical} très fréquents;
+  \item \textbf{problème de validité de la mesure:} sommer des temps par thread ne donne pas un
+  temps mur (\emph{wall-time}) de \(K1\); on peut obtenir des valeurs difficilement comparables
+  au baseline (par exemple \(\sum_t K2_t\) peut dépasser \(K1\)).
+\end{itemize}
+
+Ajouter des atomiques pour ``remplir'' \(K2/K3\) introduirait en plus un surcoût et de la
+contention (voire du false sharing), ce qui perturberait la performance mesurée elle-même.
+Pour cette raison, en campagne OpenMP, on garde un profilage robuste aux frontières de phase
+(\(K1\), \(K4\), \(K5\)) et \(K2/K3\) sont laissés à zéro par choix méthodologique.
+
+\subsection{Protocole expérimental}
+
+Campagnes utilisées pour cette section:
+\begin{itemize}[leftmargin=*]
+  \item OpenMP SoA: \texttt{results/test\_openmp\_report\_v2/omp/soa/latest}
+  \item Référence serial SoA (1 thread): \texttt{results/test\_openmp\_report\_v2/serial/soa/latest}
+\end{itemize}
+
+Configuration commune:
+\begin{itemize}[leftmargin=*]
+  \item 1200 itérations, 200 warm-up, donc 1000 itérations mesurées,
+  \item mode \texttt{--benchmark --no-render},
+  \item 7 répétitions par configuration,
+  \item machine: AMD Ryzen 7 5800H (8 coeurs physiques / 16 threads logiques), WSL2,
+  \item sweep \(\{1,2,4,8\}\) aligné sur les coeurs physiques (pas de point 16 ici),
+  \item variables d'affinité OpenMP \texttt{OMP\_PROC\_BIND}/\texttt{OMP\_PLACES} non fixées
+  dans cette campagne (valeurs par défaut runtime).
+\end{itemize}
+
+Commande type:
+\begin{verbatim}
+./scripts/measure_openmp.sh --folder test_openmp_report_v2 --layout soa --exec omp \
+  --threads 1,2,4,8 --iterations 1200 --warmup 200 --reps 7
+\end{verbatim}
+
+\subsection{Résultats}
+
+\begin{table}[H]
+\centering
+\caption{OpenMP SoA: temps noyau et speedup selon le nombre de threads}
+\label{tab:omp-speedup}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+\textbf{Threads} & \textbf{K0 moyen (ms/iter)} & \textbf{écart-type} & \textbf{Speedup \(S(p)\)} & \textbf{Efficacité \(E(p)=S/p\)} \\
+\midrule
+1 & 4.333409 & 0.333818 & 1.000000 & 1.0000 \\
+2 & 3.600448 & 0.324506 & 1.203575 & 0.6018 \\
+4 & 3.455067 & 0.589087 & 1.254219 & 0.3136 \\
+8 & 2.802022 & 0.547734 & 1.546529 & 0.1933 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Calcul explicite du speedup mesuré}
+
+Le speedup expérimental est défini par:
+\[
+S(p)=\frac{T(1)}{T(p)}
+\]
+où \(T(p)\) est le temps moyen du noyau \(K0\) (ms/itération) avec \(p\) threads.
+Dans cette section, la référence \(T(1)\) est \textbf{le backend \texttt{omp+soa} à 1 thread}
+(et non \texttt{serial+soa}), afin de mesurer strictement l'effet du threading à algorithme
+constant.
+
+À partir des valeurs mesurées:
+\[
+T(1)=4.333409,\quad
+T(2)=3.600448,\quad
+T(4)=3.455067,\quad
+T(8)=2.802022
+\]
+
+\[
+S(1)=\frac{4.333409}{4.333409}=1.000000
+\]
+\[
+S(2)=\frac{4.333409}{3.600448}=1.203574944 \approx 1.203575
+\]
+\[
+S(4)=\frac{4.333409}{3.455067}=1.254218514 \approx 1.254219
+\]
+\[
+S(8)=\frac{4.333409}{2.802022}=1.546529256 \approx 1.546529
+\]
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/openmp/openmp_speedup.png}
+  \caption{Speedup mesuré OpenMP (SoA) vs speedup idéal linéaire}
+  \label{fig:omp-speedup}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/openmp/openmp_k0_ms_iter.png}
+  \caption{Temps noyau \(K0\) en fonction du nombre de threads (barres d'erreur: écart-type)}
+  \label{fig:omp-k0}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Décomposition du noyau OpenMP SoA}
+\label{tab:omp-breakdown}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{Threads} & \textbf{K1 (ms/iter)} & \textbf{K4 (ms/iter)} & \textbf{K5 (ms/iter)} \\
+\midrule
+1 & 3.746828 & 0.572646 & 0.010618 \\
+2 & 3.083960 & 0.410361 & 0.010715 \\
+4 & 2.970344 & 0.375694 & 0.013603 \\
+8 & 2.474847 & 0.303397 & 0.012672 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.84\textwidth]{imgs/openmp/openmp_kernel_breakdown.png}
+  \caption{Décomposition \(K1/K4/K5\) du noyau OpenMP SoA}
+  \label{fig:omp-breakdown}
+\end{figure}
+
+\subsubsection{Indicateur de granularité \(m\) (cells touched)}
+
+Pour quantifier le coût de post-traitement \texttt{sort+unique}, on suit:
+\[
+m_{\text{raw}} = \#\text{cells touched (avant déduplication)} \quad\text{et}\quad
+m_{\text{uniq}} = \#\text{cells touched uniques}
+\]
+ainsi que le ratio \(m_{\text{uniq}}/m_{\text{raw}}\). Une campagne de contrôle
+(\texttt{iterations=5000}, \texttt{warmup=500}, \texttt{seed=2026},
+\texttt{results/test\_openmp\_report\_checks/latest}) donne:
+
+\begin{table}[H]
+\centering
+\caption{Granularité observée pour la phase de fusion sparse}
+\label{tab:omp-granularity}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{Threads} & \(\mathbf{m_{\text{raw}}}\) \textbf{(cells/iter)} & \(\mathbf{m_{\text{uniq}}}\) \textbf{(cells/iter)} & \(\mathbf{m_{\text{uniq}}/m_{\text{raw}}}\) \\
+\midrule
+1 & 17992.3 & 14866.0 & 0.826245 \\
+8 & 17992.3 & 14866.0 & 0.826245 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ce niveau de \(m\) explique le coût non négligeable de la fusion: la complexité
+\(\mathcal{O}(m\log m)\) de \texttt{sort+unique}, ajoutée au replay séquentiel, limite la
+scalabilité de \(K1\) même lorsque la boucle principale sur les fourmis est parallélisée.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.78\textwidth]{imgs/openmp/openmp_thread1_backend_compare.png}
+  \caption{Comparaison 1 thread: backend serial+soa vs backend omp+soa}
+  \label{fig:omp-thread1-compare}
+\end{figure}
+
+\subsubsection{Vérifications empiriques de correctitude}
+
+En complément de l'argument ``absence de races'', on vérifie deux invariants simples:
+\begin{itemize}[leftmargin=*]
+  \item \texttt{food\_quantity} monotone non décroissante (\texttt{food\_monotonic\_ok=1}),
+  \item stabilité d'indicateurs globaux de phéromones entre 1 et 8 threads (même seed).
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Checks de correctitude OpenMP (5000 itérations, warmup 500, seed 2026)}
+\label{tab:omp-correctness-checks}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+\textbf{Métrique} & \textbf{OMP 1 thread} & \textbf{OMP 8 threads} \\
+\midrule
+\texttt{food\_monotonic\_ok} & 1 & 1 \\
+\texttt{food\_quantity\_final} & 1556 & 1556 \\
+\texttt{phen\_v1\_sum} & 2989.08 & 2989.08 \\
+\texttt{phen\_v2\_sum} & 16321.2 & 16321.2 \\
+\texttt{phen\_v1\_max} & 1.0 & 1.0 \\
+\texttt{phen\_v2\_max} & 1.0 & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analyse et discussion des résultats}
+
+\subsubsection{Ce que l'on attendait globalement, et ce que l'on observe}
+
+D'après la théorie, un code contenant des boucles largement parallélisables devrait accélérer avec
+le nombre de threads. Dans nos mesures, ce comportement est bien présent: \(S(2)>S(1)\),
+\(S(4)>S(2)\) et \(S(8)>S(4)\). En revanche, l'accélération reste modérée:
+\[
+S(8)=1.5465 \quad (\text{vs idéal } 8.0)
+\]
+Autrement dit, la parallélisation apporte un gain réel, mais on n'observe pas une scalabilité
+proche de la droite idéale.
+
+\subsubsection{Lecture Amdahl: borne théorique cohérente avec les mesures}
+
+Si l'on applique la loi d'Amdahl au point mesuré \(S(8)=1.546529\), on obtient:
+\[
+f \approx \frac{8/S(8)-1}{7} \approx 0.60,
+\qquad
+S_{\max}\approx \frac{1}{f}\approx 1.68
+\]
+Donc, compte tenu de la fraction effectivement séquentielle, il est logique d'obtenir un speedup
+qui plafonne autour de \(1.6\text{--}1.7\). Le résultat observé à 8 threads (\(1.55\)) est
+compatible avec cette borne.
+
+\subsubsection{K4 (évaporation): attendu memory-bound, observé memory-bound}
+
+Le bloc \(K4\) correspond à un balayage régulier de grille, indépendant cellule par cellule.
+On pouvait donc attendre une bonne parallélisation, mais non linéaire à cause de la bande passante
+mémoire. Les mesures confirment ce scénario: \(K4\) passe de \(0.572646\) à \(0.303397\) ms/iter
+entre 1 et 8 threads (\(\approx -47\%\)), loin d'un facteur \(\times 8\), ce qui est typique
+d'un régime limité par la mémoire/cache.
+
+\subsubsection{K1 (avance des fourmis): attendu limité par la fusion, observé}
+
+On pouvait s'attendre à ce que \(K1\) ne scale pas autant que \(K4\), car la stratégie actuelle
+inclut une phase de fusion après la région parallèle. C'est exactement ce qu'on observe:
+\(K1\) baisse de \(3.746828\) à \(2.474847\) ms/iter (\(\approx -34\%\)), soit moins que \(K4\).
+
+La raison est structurelle:
+\begin{itemize}[leftmargin=*]
+  \item phase parallèle: déplacement des fourmis + enregistrement des cellules touchées,
+  \item phase séquentielle: concaténation, tri, \texttt{unique}, replay des marques.
+\end{itemize}
+
+Cette réorganisation ajoute un coût en \(\mathcal{O}(m \log m)\) (avec \(m\) le nombre de cellules
+touchées), plus des accès mémoire irréguliers. On retrouve ici une limite classique de granularité:
+une partie du gain parallèle est reperdue dans le post-traitement séquentiel.
+
+\subsubsection{Variabilité expérimentale et équilibrage de charge}
+
+Les écarts-types augmentent avec le nombre de threads (Table~\ref{tab:omp-speedup}), surtout à 4 et 8.
+C'est cohérent avec un environnement WSL2 (activité de fond, contention CPU/mémoire), et aussi avec
+la nature du calcul: même avec \texttt{schedule(static)}, le coût par fourmi n'est pas strictement
+constant (branches, durée du \texttt{while}, nombre de cellules touchées). Un déséquilibre de charge
+résiduel peut donc dégrader l'efficacité. Le choix \texttt{static} est conservé ici comme baseline
+à faible overhead; une vérification complémentaire possible consiste à tester
+\texttt{schedule(dynamic, chunk)} sur \(K1\) pour comparer variance et throughput.
+
+\subsubsection{Pourquoi la comparaison \texttt{serial} vs \texttt{omp} à 1 thread reste informative, mais limitée}
+
+La Figure~\ref{fig:omp-thread1-compare} montre un écart net entre \texttt{serial+soa} (1 thread) et
+\texttt{omp+soa} (1 thread). Cette comparaison indique bien que les deux backends n'ont pas exactement
+la même structure de coût (profilage interne, stratégie sparse dedup/replay), mais elle ne mesure pas
+à elle seule le gain dû au threading.
+
+Pour quantifier l'effet du parallélisme OpenMP pur, la référence correcte reste
+\(S(p)=T_1/T_p\) à l'intérieur du même backend OMP (Table~\ref{tab:omp-speedup}).
+
+\subsubsection{Bilan}
+
+En résumé, les résultats sont cohérents avec ce qu'on pouvait attendre d'une implémentation OpenMP
+réaliste:
+\begin{itemize}[leftmargin=*]
+  \item accélération mesurable et reproductible (\(S(8)\approx 1.55\)),
+  \item \(K4\) limité surtout par la mémoire,
+  \item \(K1\) limité par la phase de fusion sparse (partie séquentielle).
+\end{itemize}
+
+La conclusion pratique est claire: pour dépasser le niveau actuel de speedup, il faut réduire
+la part séquentielle de la fusion post-parallèle.
