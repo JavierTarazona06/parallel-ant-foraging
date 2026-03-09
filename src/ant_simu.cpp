@@ -3,6 +3,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "ant.hpp"
@@ -178,6 +179,15 @@ int main(int nargs, char* argv[])
 
     pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, sim_config.alpha, sim_config.beta);
     phen.set_openmp_evaporation_enabled(run_config.exec_model == ExecModel::omp);
+
+    if (run_config.benchmark && use_mpi && mpi_runtime::is_root()) {
+        using pheromone_value_t = std::remove_pointer_t<decltype(phen.v1_data())>;
+        const std::uint64_t payload_bytes_est =
+            static_cast<std::uint64_t>(phen.v1_size() + phen.v2_size()) * sizeof(pheromone_value_t);
+        std::cout << "METRIC mpi_sync_every " << run_config.mpi_sync_every << '\n';
+        std::cout << "METRIC mpi_sync_payload_bytes_est " << payload_bytes_est << '\n';
+    }
+
     std::size_t food_quantity = 0;
     TimingProfile backend_factory_profile;
     backend_factory_profile.reset();
