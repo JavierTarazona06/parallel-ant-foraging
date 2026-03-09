@@ -73,6 +73,10 @@ private:
     void initialize_partition_if_needed(const WorldState& world);
     void initialize_local_ants_if_needed();
     void initialize_local_pheromone_grid(const WorldState& world);
+    void clear_halo(LocalPheromoneGrid& grid);
+    void local_k5_update(double alpha);
+    void local_k4_evaporation(double beta);
+    void apply_local_forcing(const SimConfig& sim_config);
     void halo_exchange();
     void halo_exchange_channel(double* channel_base, int tag_base);
     std::vector<MigrationAntPOD> pack_outbox(const LocalAntsSoA& outbox) const;
@@ -117,4 +121,5 @@ private:
     LocalAntsSoA m_outbox_up;
     LocalAntsSoA m_outbox_down;
     LocalPheromoneGrid m_local_phen;
+    LocalPheromoneGrid m_local_next_phen;
 };

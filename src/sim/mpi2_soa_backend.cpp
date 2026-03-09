@@ -81,6 +81,20 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k_mpi_halo_ns += (halo_end_ns - halo_start_ns);
     }
 
+    const std::uint64_t k5_start_ns = profile_now_ns();
+    local_k5_update(sim_config.alpha);
+    apply_local_forcing(sim_config);
+    const std::uint64_t k5_end_ns = profile_now_ns();
+    const std::uint64_t k4_start_ns = k5_end_ns;
+    local_k4_evaporation(sim_config.beta);
+    apply_local_forcing(sim_config);
+    const std::uint64_t k4_end_ns = profile_now_ns();
+
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k5_ns += (k5_end_ns - k5_start_ns);
+        world.iter_timing->k4_ns += (k4_end_ns - k4_start_ns);
+    }
+
     step_local_ants(world, sim_config);
     const std::uint64_t migrate_start_ns = profile_now_ns();
     exchange_migrating_ants();
@@ -140,6 +154,7 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
 
     const std::size_t local_h = m_y1 - m_y0;
     m_local_phen.reset(m_global_w, local_h, -1.0);
+    m_local_next_phen.reset(m_global_w, local_h, -1.0);
 
     for (std::size_t gy = m_y0; gy < m_y1; ++gy) {
         const std::size_t ly = 1u + (gy - m_y0);
@@ -152,6 +167,98 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
     }
 
     m_local_grid_ready = true;
+}
+
+void Mpi2SoaBackend::clear_halo(LocalPheromoneGrid& grid)
+{
+    const std::size_t rows = grid.row_count();
+    const std::size_t cols = grid.stride();
+    if (rows == 0u || cols == 0u) {
+        return;
+    }
+
+    const std::size_t top = 0u;
+    const std::size_t bottom = rows - 1u;
+    const std::size_t left = 0u;
+    const std::size_t right = cols - 1u;
+
+    for (std::size_t lx = 0; lx < cols; ++lx) {
+        grid.v1(lx, top) = -1.0;
+        grid.v2(lx, top) = -1.0;
+        grid.v1(lx, bottom) = -1.0;
+        grid.v2(lx, bottom) = -1.0;
+    }
+
+    for (std::size_t ly = 0; ly < rows; ++ly) {
+        grid.v1(left, ly) = -1.0;
+        grid.v2(left, ly) = -1.0;
+        grid.v1(right, ly) = -1.0;
+        grid.v2(right, ly) = -1.0;
+    }
+}
+
+void Mpi2SoaBackend::local_k5_update(double alpha)
+{
+    if (!m_local_grid_ready) {
+        return;
+    }
+
+    clear_halo(m_local_next_phen);
+
+    const std::size_t local_h = m_local_phen.local_height();
+    const std::size_t w = m_global_w;
+    for (std::size_t ly = 1; ly <= local_h; ++ly) {
+        for (std::size_t lx = 1; lx <= w; ++lx) {
+            const double v1_left = std::max(m_local_phen.v1(lx - 1, ly), 0.0);
+            const double v1_right = std::max(m_local_phen.v1(lx + 1, ly), 0.0);
+            const double v1_up = std::max(m_local_phen.v1(lx, ly - 1), 0.0);
+            const double v1_down = std::max(m_local_phen.v1(lx, ly + 1), 0.0);
+            const double v2_left = std::max(m_local_phen.v2(lx - 1, ly), 0.0);
+            const double v2_right = std::max(m_local_phen.v2(lx + 1, ly), 0.0);
+            const double v2_up = std::max(m_local_phen.v2(lx, ly - 1), 0.0);
+            const double v2_down = std::max(m_local_phen.v2(lx, ly + 1), 0.0);
+
+            const double next_v1 = alpha * std::max({v1_left, v1_right, v1_up, v1_down}) +
+                                   (1.0 - alpha) * 0.25 * (v1_left + v1_right + v1_up + v1_down);
+            const double next_v2 = alpha * std::max({v2_left, v2_right, v2_up, v2_down}) +
+                                   (1.0 - alpha) * 0.25 * (v2_left + v2_right + v2_up + v2_down);
+
+            m_local_next_phen.v1(lx, ly) = next_v1;
+            m_local_next_phen.v2(lx, ly) = next_v2;
+        }
+    }
+
+    std::swap(m_local_phen, m_local_next_phen);
+}
+
+void Mpi2SoaBackend::local_k4_evaporation(double beta)
+{
+    if (!m_local_grid_ready) {
+        return;
+    }
+    const std::size_t local_h = m_local_phen.local_height();
+    const std::size_t w = m_global_w;
+    for (std::size_t ly = 1; ly <= local_h; ++ly) {
+        for (std::size_t lx = 1; lx <= w; ++lx) {
+            m_local_phen.v1(lx, ly) *= beta;
+            m_local_phen.v2(lx, ly) *= beta;
+        }
+    }
+}
+
+void Mpi2SoaBackend::apply_local_forcing(const SimConfig& sim_config)
+{
+    if (!m_local_grid_ready) {
+        return;
+    }
+    if (owns_cell_global(sim_config.pos_food.x, sim_config.pos_food.y)) {
+        const LocalCellCoord food = global_to_local(sim_config.pos_food.x, sim_config.pos_food.y);
+        m_local_phen.v1(static_cast<std::size_t>(food.lx), static_cast<std::size_t>(food.ly)) = 1.0;
+    }
+    if (owns_cell_global(sim_config.pos_nest.x, sim_config.pos_nest.y)) {
+        const LocalCellCoord nest = global_to_local(sim_config.pos_nest.x, sim_config.pos_nest.y);
+        m_local_phen.v2(static_cast<std::size_t>(nest.lx), static_cast<std::size_t>(nest.ly)) = 1.0;
+    }
 }
 
 void Mpi2SoaBackend::initialize_local_ants_if_needed()
