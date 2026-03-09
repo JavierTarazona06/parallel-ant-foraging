@@ -4,6 +4,7 @@
 
 #include "aos_backend.hpp"
 #include "mpi1_soa_backend.hpp"
+#include "mpi2_soa_backend.hpp"
 #include "omp_soa_backend.hpp"
 #include "soa_backend.hpp"
 
@@ -25,9 +26,11 @@ std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
     }
 
     if (run_config.exec_model == ExecModel::mpi2) {
-        std::cerr << "Execution model '" << exec_model_to_text(run_config.exec_model)
-                  << "' is not implemented yet. Use --exec serial or --exec omp.\n";
-        return nullptr;
+        if (run_config.layout == AntLayout::aos) {
+            std::cerr << "Execution model 'mpi2' supports only soa.\n";
+            return nullptr;
+        }
+        return std::make_unique<Mpi2SoaBackend>(ants_soa);
     }
 
     if (run_config.exec_model == ExecModel::serial) {
