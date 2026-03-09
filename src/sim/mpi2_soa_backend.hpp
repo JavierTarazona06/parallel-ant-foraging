@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <vector>
 
 #include "backend.hpp"
 #include "../mpi2/local_pheromone_grid.hpp"
@@ -19,15 +20,58 @@ public:
                                               const position_t& pos_food) const override;
 
 private:
+    struct LocalAntsSoA {
+        std::vector<std::int32_t> x;
+        std::vector<std::int32_t> y;
+        std::vector<std::uint8_t> state;
+        std::vector<std::uint32_t> seed;
+
+        std::size_t size() const { return x.size(); }
+        bool empty() const { return x.empty(); }
+        void clear()
+        {
+            x.clear();
+            y.clear();
+            state.clear();
+            seed.clear();
+        }
+        void reserve(std::size_t n)
+        {
+            x.reserve(n);
+            y.reserve(n);
+            state.reserve(n);
+            seed.reserve(n);
+        }
+        void push_back(std::int32_t ax, std::int32_t ay, std::uint8_t as, std::uint32_t sd)
+        {
+            x.push_back(ax);
+            y.push_back(ay);
+            state.push_back(as);
+            seed.push_back(sd);
+        }
+        void resize(std::size_t n)
+        {
+            x.resize(n);
+            y.resize(n);
+            state.resize(n);
+            seed.resize(n);
+        }
+    };
+
     struct LocalCellCoord {
         std::int32_t lx{0};
         std::int32_t ly{0};
     };
 
     void initialize_partition_if_needed(const WorldState& world);
+    void initialize_local_ants_if_needed();
     void initialize_local_pheromone_grid(const WorldState& world);
     void halo_exchange();
     void halo_exchange_channel(double* channel_base, int tag_base);
+    void step_local_ants(WorldState& world, const SimConfig& sim_config);
+    bool advance_one_local_ant(WorldState& world, const SimConfig& sim_config, std::size_t ant_idx);
+    void enqueue_migrated_ant(std::size_t ant_idx);
+    void maybe_print_migration_debug();
     bool within_local_plus_halo_global(std::int32_t x, std::int32_t y) const;
     LocalCellCoord global_to_local_with_halo(std::int32_t x, std::int32_t y) const;
     double phen_read_global(std::int32_t x, std::int32_t y, int channel) const;
@@ -48,6 +92,11 @@ private:
     int m_down_rank{-1};
     bool m_partition_ready{false};
     bool m_partition_logged{false};
+    bool m_local_ants_ready{false};
     bool m_local_grid_ready{false};
+    std::uint64_t m_step_counter{0};
+    LocalAntsSoA m_local_ants;
+    LocalAntsSoA m_outbox_up;
+    LocalAntsSoA m_outbox_down;
     LocalPheromoneGrid m_local_phen;
 };

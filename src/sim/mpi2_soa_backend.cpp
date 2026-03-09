@@ -10,6 +10,7 @@
 #include <mpi.h>
 
 #include "../mpi/mpi_runtime.hpp"
+#include "../rand_generator.hpp"
 #include "../renderer.hpp"
 #include "../timing_profile.hpp"
 
@@ -34,6 +35,16 @@ bool mpi2_debug_partition_enabled()
     return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";
 }
 
+bool mpi2_debug_migration_enabled()
+{
+    const char* env = std::getenv("MPI2_DEBUG_MIGRATION");
+    if (env == nullptr) {
+        return false;
+    }
+    const std::string value(env);
+    return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";
+}
+
 } // namespace
 
 Mpi2SoaBackend::Mpi2SoaBackend(AntsSoA& ants)
@@ -48,8 +59,9 @@ const char* Mpi2SoaBackend::name() const
 
 void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 {
-    // MPI2 skeleton: we only initialize and validate the 1D row partition.
+    // MPI2 path: partition/halo + local-ant step + deferred migration outboxes.
     initialize_partition_if_needed(world);
+    initialize_local_ants_if_needed();
 
     const std::uint64_t halo_start_ns = profile_now_ns();
     halo_exchange();
@@ -59,7 +71,9 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k_mpi_halo_ns += (halo_end_ns - halo_start_ns);
     }
 
-    (void)sim_config;
+    step_local_ants(world, sim_config);
+    maybe_print_migration_debug();
+    ++m_step_counter;
 }
 
 std::unique_ptr<Renderer> Mpi2SoaBackend::create_renderer(const fractal_land& land,
@@ -124,6 +138,26 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
     m_local_grid_ready = true;
 }
 
+void Mpi2SoaBackend::initialize_local_ants_if_needed()
+{
+    if (!m_partition_ready || m_local_ants_ready) {
+        return;
+    }
+
+    m_local_ants.clear();
+    m_local_ants.reserve(m_ants.size());
+
+    for (std::size_t i = 0; i < m_ants.size(); ++i) {
+        const std::int32_t ax = m_ants.x[i];
+        const std::int32_t ay = m_ants.y[i];
+        if (owns_cell_global(ax, ay)) {
+            m_local_ants.push_back(ax, ay, m_ants.state[i], m_ants.seed[i]);
+        }
+    }
+
+    m_local_ants_ready = true;
+}
+
 void Mpi2SoaBackend::halo_exchange()
 {
     if (!m_partition_ready || !m_local_grid_ready) {
@@ -162,6 +196,169 @@ void Mpi2SoaBackend::halo_exchange_channel(double* channel_base, int tag_base)
     MPI_Sendrecv(last_interior, row_count, MPI_DOUBLE, m_down_rank, tag_base + 2,
                  top_halo, row_count, MPI_DOUBLE, m_up_rank, tag_base + 2,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_config)
+{
+    if (!m_local_ants_ready || m_local_ants.empty()) {
+        m_outbox_up.clear();
+        m_outbox_down.clear();
+        return;
+    }
+
+    m_outbox_up.clear();
+    m_outbox_down.clear();
+    m_outbox_up.reserve(m_local_ants.size() / 4 + 4);
+    m_outbox_down.reserve(m_local_ants.size() / 4 + 4);
+
+    const std::uint64_t step_start_ns = profile_now_ns();
+    std::uint64_t k2_work_ns = 0;
+    std::uint64_t k3_work_ns = 0;
+
+    std::size_t write_idx = 0;
+    const std::size_t initial_count = m_local_ants.size();
+    for (std::size_t i = 0; i < initial_count; ++i) {
+        const bool migrated = advance_one_local_ant(world, sim_config, i);
+        if (migrated) {
+            enqueue_migrated_ant(i);
+            continue;
+        }
+
+        if (write_idx != i) {
+            m_local_ants.x[write_idx] = m_local_ants.x[i];
+            m_local_ants.y[write_idx] = m_local_ants.y[i];
+            m_local_ants.state[write_idx] = m_local_ants.state[i];
+            m_local_ants.seed[write_idx] = m_local_ants.seed[i];
+        }
+        ++write_idx;
+    }
+    m_local_ants.resize(write_idx);
+    const std::uint64_t step_end_ns = profile_now_ns();
+
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k1_ns += (step_end_ns - step_start_ns);
+        world.iter_timing->k2_ns += k2_work_ns;
+        world.iter_timing->k3_ns += k3_work_ns;
+    }
+}
+
+bool Mpi2SoaBackend::advance_one_local_ant(WorldState& world, const SimConfig& sim_config, std::size_t ant_idx)
+{
+    std::uint32_t seed = m_local_ants.seed[ant_idx];
+    std::uint8_t state = m_local_ants.state[ant_idx];
+    std::int32_t x = m_local_ants.x[ant_idx];
+    std::int32_t y = m_local_ants.y[ant_idx];
+    double consumed_time = 0.0;
+
+    while (consumed_time < 1.0) {
+        const int ind_pher = (state == 1u) ? 1 : 0;
+        const double choix = rand_double(0., 1., seed);
+        std::int32_t new_x = x;
+        std::int32_t new_y = y;
+
+        const double max_phen =
+            std::max({phen_read_global(new_x - 1, new_y, ind_pher),
+                      phen_read_global(new_x + 1, new_y, ind_pher),
+                      phen_read_global(new_x, new_y - 1, ind_pher),
+                      phen_read_global(new_x, new_y + 1, ind_pher)});
+
+        if ((choix > sim_config.epsilon) || (max_phen <= 0.)) {
+            do {
+                new_x = x;
+                new_y = y;
+                const int d = rand_int32(1, 4, seed);
+                if (d == 1) {
+                    new_x -= 1;
+                }
+                if (d == 2) {
+                    new_y -= 1;
+                }
+                if (d == 3) {
+                    new_x += 1;
+                }
+                if (d == 4) {
+                    new_y += 1;
+                }
+            } while (phen_read_global(new_x, new_y, ind_pher) == -1.0);
+        } else {
+            if (phen_read_global(new_x - 1, new_y, ind_pher) == max_phen) {
+                new_x -= 1;
+            } else if (phen_read_global(new_x + 1, new_y, ind_pher) == max_phen) {
+                new_x += 1;
+            } else if (phen_read_global(new_x, new_y - 1, ind_pher) == max_phen) {
+                new_y -= 1;
+            } else {
+                new_y += 1;
+            }
+        }
+
+        // Deferred migration baseline: ant is moved to neighbor outbox and stops this iteration.
+        if (!owns_cell_global(new_x, new_y)) {
+            m_local_ants.x[ant_idx] = new_x;
+            m_local_ants.y[ant_idx] = new_y;
+            m_local_ants.state[ant_idx] = state;
+            m_local_ants.seed[ant_idx] = seed;
+            return true;
+        }
+
+        consumed_time += world.land(static_cast<unsigned long>(new_x), static_cast<unsigned long>(new_y));
+        (void)mark_pheromone_global(new_x, new_y, ind_pher);
+        x = new_x;
+        y = new_y;
+
+        if ((x == sim_config.pos_nest.x) && (y == sim_config.pos_nest.y)) {
+            if (state == 1u) {
+                world.food_quantity += 1;
+            }
+            state = 0u;
+        }
+        if ((x == sim_config.pos_food.x) && (y == sim_config.pos_food.y)) {
+            state = 1u;
+        }
+    }
+
+    m_local_ants.x[ant_idx] = x;
+    m_local_ants.y[ant_idx] = y;
+    m_local_ants.state[ant_idx] = state;
+    m_local_ants.seed[ant_idx] = seed;
+    return false;
+}
+
+void Mpi2SoaBackend::enqueue_migrated_ant(std::size_t ant_idx)
+{
+    const std::int32_t ax = m_local_ants.x[ant_idx];
+    const std::int32_t ay = m_local_ants.y[ant_idx];
+    const std::uint8_t as = m_local_ants.state[ant_idx];
+    const std::uint32_t sd = m_local_ants.seed[ant_idx];
+
+    if (ay < static_cast<std::int32_t>(m_y0)) {
+        if (m_up_rank != MPI_PROC_NULL) {
+            m_outbox_up.push_back(ax, ay, as, sd);
+        }
+        return;
+    }
+    if (ay >= static_cast<std::int32_t>(m_y1)) {
+        if (m_down_rank != MPI_PROC_NULL) {
+            m_outbox_down.push_back(ax, ay, as, sd);
+        }
+        return;
+    }
+
+    // 1D row split owns full X span; unexpected migration on X is dropped for baseline.
+}
+
+void Mpi2SoaBackend::maybe_print_migration_debug()
+{
+    if (!mpi2_debug_migration_enabled()) {
+        return;
+    }
+
+    std::cerr << "INFO mpi2 migration rank=" << m_rank
+              << " step=" << m_step_counter
+              << " local_ants=" << m_local_ants.size()
+              << " out_up=" << m_outbox_up.size()
+              << " out_down=" << m_outbox_down.size()
+              << '\n';
 }
 
 bool Mpi2SoaBackend::within_local_plus_halo_global(std::int32_t x, std::int32_t y) const
