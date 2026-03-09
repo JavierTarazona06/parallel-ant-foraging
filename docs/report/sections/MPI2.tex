@@ -1,0 +1,223 @@
+\section{Parallélisation du code (MPI) --- Deuxième façon}
+
+\subsection{Stratégie de parallélisation}
+
+\subsubsection{Objectif}
+
+L'objectif de cette étape est d'implémenter la ``deuxième façon'' du sujet :
+au lieu de répliquer toute la carte de phéromones sur chaque rang (MPI1), on
+répartit la grille par sous-domaines, avec échanges locaux entre voisins.
+Le but est de réduire le coût de communication globale et d'améliorer la
+scalabilité en fonction du nombre de processus.
+
+\subsubsection{Choix d'architecture}
+
+Dans notre implémentation, le mode \texttt{mpi2} est porté par un backend séparé
+\texttt{mpi2+soa}, sélectionné via \texttt{--exec mpi2 --layout soa}.
+Les modes \texttt{serial}, \texttt{omp} et \texttt{mpi1} restent inchangés.
+Cette séparation permet d'analyser MPI2 sans introduire de régression sur les
+modes déjà validés.
+
+\subsubsection{Répartition du travail et données locales}
+
+Nous utilisons une décomposition 1D par lignes :
+\begin{itemize}[leftmargin=*]
+  \item chaque rang possède un bloc contigu de lignes \(y_0 \dots y_1\),
+  \item les voisins MPI sont \texttt{up} et \texttt{down},
+  \item chaque rang stocke une carte locale \(V1/V2\) avec halo de 1 cellule.
+\end{itemize}
+
+Les fourmis gardent leurs coordonnées globales \((x,y)\), mais ne sont
+traitées localement que si leur position appartient au sous-domaine du rang.
+
+\subsubsection{Communications}
+
+MPI2 remplace les réductions globales de carte par des échanges locaux :
+\begin{itemize}[leftmargin=*]
+  \item \textbf{halo exchange} (\texttt{MPI\_Sendrecv}) pour les lignes frontière
+  de \(V1/V2\),
+  \item \textbf{migration de fourmis} via buffers agrégés (count + tableau POD)
+  entre voisins.
+\end{itemize}
+
+Le compteur de nourriture est agrégé avec \texttt{MPI\_Allreduce(SUM)}.
+Les temps MPI sont reportés en wall-time via \texttt{MPI\_Allreduce(MAX)}.
+La sortie benchmark est root-only (rang 0), comme pour MPI1.
+
+\subsubsection{Politique de migration (baseline)}
+
+Le noyau de déplacement peut faire plusieurs sous-pas par itération
+(\texttt{consumed\_time < 1.0}).
+Dans la baseline MPI2, nous utilisons une migration différée :
+si une fourmi sort du sous-domaine, elle est envoyée au voisin mais ne continue
+pas ses sous-pas restants pendant la même itération.
+Cette approximation est explicitement documentée pour rester lisible en cadre projet.
+
+\subsection{Résultat du Profilage}
+
+\subsubsection{Protocole expérimental}
+
+Campagne utilisée :
+\begin{itemize}[leftmargin=*]
+  \item \texttt{results/test\_mpi2\_report\_v1/mpi2/soa/latest}
+\end{itemize}
+
+Commande type:
+\begin{verbatim}
+./scripts/measure_mpi2.sh --folder test_mpi2_report_v1 \
+  --np 1,2,4,8 --iterations 400 --warmup 100 --reps 3
+\end{verbatim}
+
+Configuration :
+\begin{itemize}[leftmargin=*]
+  \item 400 itérations, 100 warm-up, donc 300 itérations mesurées,
+  \item 3 répétitions par configuration,
+  \item \texttt{OMP\_NUM\_THREADS=1}, \texttt{OMP\_DYNAMIC=FALSE},
+  \item binding MPI : \texttt{--bind-to core --map-by core},
+  \item machine : AMD Ryzen 7 5800H (WSL2).
+\end{itemize}
+
+La variation relative du temps noyau est définie par :
+\[
+\Delta(K0_p)=K0_p-K0_1,
+\qquad
+\Delta_{\%}(K0_p)=100\times\frac{K0_p-K0_1}{K0_1}
+\]
+où \(K0_1\) est la valeur à \(np=1\).
+
+\begin{table}[H]
+\centering
+\scriptsize
+\caption{MPI2 SoA : temps noyau, variation relative et speedup selon le nombre de processus}
+\label{tab:mpi2-speedup}
+\begin{tabular}{@{}rrrrrrr@{}}
+\toprule
+\textbf{np} & \textbf{K0 moyen} & \textbf{écart-type} & \textbf{\(\Delta\)} & \textbf{\(\Delta_{\%}\)} & \textbf{Speedup \(S(p)\)} & \textbf{Efficacité \(E(p)\)} \\
+\midrule
+1 & 16.328744 & 0.287091 & +0.000000 & +0.000 & 1.000000 & 1.000000 \\
+2 & 9.678549 & 0.032995 & -6.650195 & -40.727 & 1.687107 & 0.843553 \\
+4 & 5.755498 & 0.044726 & -10.573246 & -64.752 & 2.837069 & 0.709267 \\
+8 & 3.009207 & 0.042521 & -13.319537 & -81.571 & 5.426261 & 0.678283 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Définition et lecture de l'efficacité}
+
+Le speedup est défini par :
+\[
+S(p)=\frac{T(1)}{T(p)}
+\]
+et l'efficacité par :
+\[
+E(p)=\frac{S(p)}{p}
+\]
+
+Une efficacité proche de 1 signifie que les processus supplémentaires sont bien
+utilisés. Quand \(E(p)\) baisse, cela indique qu'une partie du gain est absorbée
+par les overheads (communication, synchronisation, déséquilibre éventuel).
+Ici, la baisse reste modérée entre 2, 4 et 8 processus.
+
+\begin{table}[H]
+\centering
+\caption{Décomposition du noyau MPI2 SoA}
+\label{tab:mpi2-breakdown}
+\begin{tabular}{@{}rrrrrr@{}}
+\toprule
+\textbf{np} & \textbf{K1} & \textbf{K4} & \textbf{K5} & \(\mathbf{K_{\text{MPI\_sync}}}\) & \(\mathbf{K_{\text{MPI\_halo}}+K_{\text{MPI\_migrate}}}\) \\
+\midrule
+1 & 4.015616 & 2.006964 & 10.290746 & 0.007818 & 0.002027 \\
+2 & 2.063510 & 1.093025 & 5.741279 & 1.100832 & 0.089955 \\
+4 & 1.261674 & 0.593487 & 3.241676 & 0.959701 & 0.138488 \\
+8 & 0.679745 & 0.322101 & 1.726835 & 0.649644 & 0.094833 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/mpi2/mpi2_speedup.png}
+  \caption{Speedup mesuré MPI2 (SoA) vs speedup idéal linéaire}
+  \label{fig:mpi2-speedup}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/mpi2/mpi2_efficiency.png}
+  \caption{Efficacité MPI2 (SoA) en fonction du nombre de processus}
+  \label{fig:mpi2-efficiency}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/mpi2/mpi2_k0_ms_iter.png}
+  \caption{Temps noyau \(K0\) en fonction du nombre de processus (MPI2 SoA)}
+  \label{fig:mpi2-k0}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.84\textwidth]{imgs/mpi2/mpi2_kernel_breakdown.png}
+  \caption{Décomposition \(K1/K4/K5/K_{\text{MPI\_sync}}/K_{\text{MPI\_halo}}/K_{\text{MPI\_migrate}}\)}
+  \label{fig:mpi2-breakdown}
+\end{figure}
+
+\subsection{Analyse des Résultats}
+
+\subsubsection{Scalabilité globale}
+
+Les résultats montrent une amélioration nette de \(K0\) quand \(np\) augmente
+(Table~\ref{tab:mpi2-speedup}) :
+\[
+S(2)=1.687,\quad S(4)=2.837,\quad S(8)=5.426
+\]
+Le speedup reste sous la droite idéale, mais la tendance est clairement
+scalable pour cette campagne.
+
+\subsubsection{Lecture Amdahl}
+
+Avec \(S(8)=5.426\), une estimation simple donne :
+\[
+f \approx \frac{8/S(8)-1}{7}\approx 0.068,\qquad
+S_{\max}\approx \frac{1}{f}\approx 14.76
+\]
+Ce calcul indique une fraction effectivement séquentielle faible dans cette version MPI2.
+
+\subsubsection{Bottlenecks observés}
+
+La Table~\ref{tab:mpi2-breakdown} montre que :
+\begin{itemize}[leftmargin=*]
+  \item \(K5\) reste la composante principale du noyau, même si son coût baisse avec \(np\),
+  \item \(K_{\text{MPI\_sync}}\) augmente en valeur absolue entre \(np=1\) et \(np=2\), mais
+  reste contenu ensuite,
+  \item les coûts halo+migration sont présents mais restent modestes face à \(K5\).
+\end{itemize}
+
+En pratique, MPI2 évite le coût des réductions globales de cartes complètes (cas MPI1) et
+remplace ce coût par des communications locales de voisinage, plus favorables à la scalabilité.
+
+\subsubsection{Lecture de l'efficacité}
+
+La Figure~\ref{fig:mpi2-efficiency} confirme une baisse classique de l'efficacité avec \(np\),
+mais la baisse reste progressive :
+\[
+E(2)=0.844,\quad E(4)=0.709,\quad E(8)=0.678
+\]
+Cette évolution est cohérente avec un compromis attendu en MPI : le calcul local se répartit
+bien, tandis que le poids relatif des communications augmente quand on ajoute des processus.
+
+\subsection{Interprétation}
+
+Les Tables~\ref{tab:mpi2-speedup} et \ref{tab:mpi2-breakdown}, ainsi que les Figures
+~\ref{fig:mpi2-speedup}, \ref{fig:mpi2-efficiency}, \ref{fig:mpi2-k0} et \ref{fig:mpi2-breakdown},
+montrent que la ``deuxième façon'' atteint l'objectif principal du point MPI :
+améliorer la scalabilité en réduisant la communication globale.
+
+Le point important est que cette amélioration ne vient pas d'une optimisation locale isolée,
+mais d'un changement de stratégie de communication :
+au lieu de synchroniser des cartes complètes par \texttt{Allreduce(MAX)} à chaque itération,
+on échange principalement des informations de bord (halo) et des fourmis migrantes entre voisins.
+
+Dans ce cadre, les résultats obtenus sont cohérents avec la théorie du cours sur la granularité :
+en diminuant le volume de communication globale par itération, on obtient un meilleur ratio
+calcul/communication et donc un speedup plus élevé.
