@@ -24,7 +24,7 @@ void run_benchmark(const RunConfig& run_config,
                    std::size_t& food_quantity,
                    MeasurementTotals& totals)
 {
-    const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1);
+    const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
     TimingProfile profile;
     profile.reset();
     SDL_Event event;

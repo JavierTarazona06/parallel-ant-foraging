@@ -141,7 +141,7 @@ int main(int nargs, char* argv[])
 
     const RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
-    const bool use_mpi = (run_config.exec_model == ExecModel::mpi1);
+    const bool use_mpi = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
     if (use_mpi) {
         mpi_runtime::init(&nargs, &argv);
     }
