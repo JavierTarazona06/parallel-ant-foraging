@@ -28,6 +28,10 @@ private:
     void initialize_local_pheromone_grid(const WorldState& world);
     void halo_exchange();
     void halo_exchange_channel(double* channel_base, int tag_base);
+    bool within_local_plus_halo_global(std::int32_t x, std::int32_t y) const;
+    LocalCellCoord global_to_local_with_halo(std::int32_t x, std::int32_t y) const;
+    double phen_read_global(std::int32_t x, std::int32_t y, int channel) const;
+    bool mark_pheromone_global(std::int32_t x, std::int32_t y, int channel);
     bool owns_cell_global(std::int32_t x, std::int32_t y) const;
     LocalCellCoord global_to_local(std::int32_t x, std::int32_t y) const;
     void maybe_print_partition_debug();

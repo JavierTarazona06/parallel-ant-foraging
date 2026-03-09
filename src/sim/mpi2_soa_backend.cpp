@@ -157,6 +157,70 @@ void Mpi2SoaBackend::halo_exchange_channel(double* channel_base, int tag_base)
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
+bool Mpi2SoaBackend::within_local_plus_halo_global(std::int32_t x, std::int32_t y) const
+{
+    if (!m_partition_ready || !m_local_grid_ready) {
+        return false;
+    }
+
+    // 1D row split: each rank has full X range + left/right halo.
+    const std::int32_t x_min = -1;
+    const std::int32_t x_max = static_cast<std::int32_t>(m_global_w);
+    if (x < x_min || x > x_max) {
+        return false;
+    }
+
+    // Y range accepts local interior + one halo row above/below.
+    const std::int32_t y_min = static_cast<std::int32_t>(m_y0) - 1;
+    const std::int32_t y_max = static_cast<std::int32_t>(m_y1); // inclusive halo at m_y1
+    return y >= y_min && y <= y_max;
+}
+
+Mpi2SoaBackend::LocalCellCoord Mpi2SoaBackend::global_to_local_with_halo(std::int32_t x, std::int32_t y) const
+{
+    assert(within_local_plus_halo_global(x, y) &&
+           "global_to_local_with_halo received coordinates outside local+halo");
+
+    const std::int32_t lx = x + 1;
+    const std::int32_t ly = y - static_cast<std::int32_t>(m_y0) + 1;
+    assert(lx >= 0 && lx < static_cast<std::int32_t>(m_local_phen.stride()));
+    assert(ly >= 0 && ly < static_cast<std::int32_t>(m_local_phen.row_count()));
+    return LocalCellCoord{lx, ly};
+}
+
+double Mpi2SoaBackend::phen_read_global(std::int32_t x, std::int32_t y, int channel) const
+{
+    assert(channel == 0 || channel == 1);
+    if (!within_local_plus_halo_global(x, y)) {
+        assert(false && "phen_read_global outside local+halo");
+        return -1.0;
+    }
+
+    const LocalCellCoord local = global_to_local_with_halo(x, y);
+    if (channel == 0) {
+        return m_local_phen.v1(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
+    }
+    return m_local_phen.v2(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
+}
+
+bool Mpi2SoaBackend::mark_pheromone_global(std::int32_t x, std::int32_t y, int channel)
+{
+    assert(channel == 0 || channel == 1);
+    if (!owns_cell_global(x, y)) {
+        return false;
+    }
+
+    const LocalCellCoord local = global_to_local(x, y);
+    if (channel == 0) {
+        double& cell = m_local_phen.v1(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
+        cell = std::max(cell, 1.0);
+    } else {
+        double& cell = m_local_phen.v2(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
+        cell = std::max(cell, 1.0);
+    }
+    return true;
+}
+
 bool Mpi2SoaBackend::owns_cell_global(std::int32_t x, std::int32_t y) const
 {
     if (!m_partition_ready || x < 0 || y < 0) {
