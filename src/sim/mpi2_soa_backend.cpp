@@ -1,6 +1,5 @@
 #include "mpi2_soa_backend.hpp"
 
-#include "../ants_soa.hpp"
 #include "../renderer.hpp"
 
 Mpi2SoaBackend::Mpi2SoaBackend(AntsSoA& ants)
@@ -15,10 +14,9 @@ const char* Mpi2SoaBackend::name() const
 
 void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 {
-    // MPI2 skeleton: keep SoA serial step semantics for now.
-    advance_time_soa(world.land, world.phen, sim_config.pos_nest.x, sim_config.pos_nest.y, sim_config.pos_food.x,
-                     sim_config.pos_food.y, m_ants, sim_config.epsilon, world.food_quantity, world.profile,
-                     world.iter_timing);
+    // MPI2 skeleton: intentionally no simulation logic yet.
+    (void)world;
+    (void)sim_config;
 }
 
 std::unique_ptr<Renderer> Mpi2SoaBackend::create_renderer(const fractal_land& land,
@@ -28,4 +26,3 @@ std::unique_ptr<Renderer> Mpi2SoaBackend::create_renderer(const fractal_land& la
 {
     return std::make_unique<Renderer>(land, phen, pos_nest, pos_food, m_ants);
 }
-
