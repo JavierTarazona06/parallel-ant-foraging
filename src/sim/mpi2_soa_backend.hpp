@@ -63,11 +63,24 @@ private:
         std::int32_t ly{0};
     };
 
+    struct MigrationAntPOD {
+        int x{0};
+        int y{0};
+        int state{0};
+        std::uint64_t seed{0};
+    };
+
     void initialize_partition_if_needed(const WorldState& world);
     void initialize_local_ants_if_needed();
     void initialize_local_pheromone_grid(const WorldState& world);
     void halo_exchange();
     void halo_exchange_channel(double* channel_base, int tag_base);
+    std::vector<MigrationAntPOD> pack_outbox(const LocalAntsSoA& outbox) const;
+    std::vector<MigrationAntPOD> exchange_direction(const std::vector<MigrationAntPOD>& send_buffer,
+                                                    int send_neighbor, int recv_neighbor,
+                                                    int tag_base);
+    void append_received_ants(const std::vector<MigrationAntPOD>& received);
+    void exchange_migrating_ants();
     void step_local_ants(WorldState& world, const SimConfig& sim_config);
     bool advance_one_local_ant(WorldState& world, const SimConfig& sim_config, std::size_t ant_idx);
     void enqueue_migrated_ant(std::size_t ant_idx);
@@ -95,6 +108,11 @@ private:
     bool m_local_ants_ready{false};
     bool m_local_grid_ready{false};
     std::uint64_t m_step_counter{0};
+    std::size_t m_expected_global_ants{0};
+    std::size_t m_last_out_up{0};
+    std::size_t m_last_out_down{0};
+    std::size_t m_last_in_up{0};
+    std::size_t m_last_in_down{0};
     LocalAntsSoA m_local_ants;
     LocalAntsSoA m_outbox_up;
     LocalAntsSoA m_outbox_down;

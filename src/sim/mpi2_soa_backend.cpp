@@ -45,6 +45,16 @@ bool mpi2_debug_migration_enabled()
     return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";
 }
 
+bool mpi2_debug_ant_count_enabled()
+{
+    const char* env = std::getenv("MPI2_DEBUG_ANT_COUNT");
+    if (env == nullptr) {
+        return false;
+    }
+    const std::string value(env);
+    return value == "1" || value == "true" || value == "TRUE" || value == "yes" || value == "YES";
+}
+
 } // namespace
 
 Mpi2SoaBackend::Mpi2SoaBackend(AntsSoA& ants)
@@ -72,6 +82,12 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     }
 
     step_local_ants(world, sim_config);
+    const std::uint64_t migrate_start_ns = profile_now_ns();
+    exchange_migrating_ants();
+    const std::uint64_t migrate_end_ns = profile_now_ns();
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k_mpi_migrate_ns += (migrate_end_ns - migrate_start_ns);
+    }
     maybe_print_migration_debug();
     ++m_step_counter;
 }
@@ -155,6 +171,7 @@ void Mpi2SoaBackend::initialize_local_ants_if_needed()
         }
     }
 
+    m_expected_global_ants = m_ants.size();
     m_local_ants_ready = true;
 }
 
@@ -347,17 +364,105 @@ void Mpi2SoaBackend::enqueue_migrated_ant(std::size_t ant_idx)
     // 1D row split owns full X span; unexpected migration on X is dropped for baseline.
 }
 
+std::vector<Mpi2SoaBackend::MigrationAntPOD> Mpi2SoaBackend::pack_outbox(const LocalAntsSoA& outbox) const
+{
+    std::vector<MigrationAntPOD> packed;
+    packed.reserve(outbox.size());
+    for (std::size_t i = 0; i < outbox.size(); ++i) {
+        packed.push_back(MigrationAntPOD{
+            static_cast<int>(outbox.x[i]),
+            static_cast<int>(outbox.y[i]),
+            static_cast<int>(outbox.state[i]),
+            static_cast<std::uint64_t>(outbox.seed[i])});
+    }
+    return packed;
+}
+
+std::vector<Mpi2SoaBackend::MigrationAntPOD> Mpi2SoaBackend::exchange_direction(
+    const std::vector<MigrationAntPOD>& send_buffer, int send_neighbor, int recv_neighbor, int tag_base)
+{
+    int send_count = static_cast<int>(send_buffer.size());
+    int recv_count = 0;
+    MPI_Sendrecv(&send_count, 1, MPI_INT, send_neighbor, tag_base + 0,
+                 &recv_count, 1, MPI_INT, recv_neighbor, tag_base + 0,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    if (recv_count < 0) {
+        recv_count = 0;
+    }
+    std::vector<MigrationAntPOD> recv_buffer(static_cast<std::size_t>(recv_count));
+
+    const int send_bytes = send_count * static_cast<int>(sizeof(MigrationAntPOD));
+    const int recv_bytes = recv_count * static_cast<int>(sizeof(MigrationAntPOD));
+    MPI_Sendrecv(send_bytes > 0 ? send_buffer.data() : nullptr, send_bytes, MPI_BYTE, send_neighbor, tag_base + 1,
+                 recv_bytes > 0 ? recv_buffer.data() : nullptr, recv_bytes, MPI_BYTE, recv_neighbor, tag_base + 1,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    return recv_buffer;
+}
+
+void Mpi2SoaBackend::append_received_ants(const std::vector<MigrationAntPOD>& received)
+{
+    for (const MigrationAntPOD& ant : received) {
+        const std::int32_t x = static_cast<std::int32_t>(ant.x);
+        const std::int32_t y = static_cast<std::int32_t>(ant.y);
+        if (!owns_cell_global(x, y)) {
+            assert(false && "received migrating ant not owned by current rank");
+            continue;
+        }
+
+        const std::uint8_t state = static_cast<std::uint8_t>(ant.state);
+        const std::uint32_t seed = static_cast<std::uint32_t>(ant.seed);
+        m_local_ants.push_back(x, y, state, seed);
+    }
+}
+
+void Mpi2SoaBackend::exchange_migrating_ants()
+{
+    const std::vector<MigrationAntPOD> send_up = pack_outbox(m_outbox_up);
+    const std::vector<MigrationAntPOD> send_down = pack_outbox(m_outbox_down);
+
+    m_last_out_up = send_up.size();
+    m_last_out_down = send_down.size();
+
+    // Same pattern as halo exchange:
+    // 1) send outbox_up to UP, receive DOWN outbox_up into current rank.
+    const std::vector<MigrationAntPOD> recv_from_down = exchange_direction(send_up, m_up_rank, m_down_rank, 300);
+    // 2) send outbox_down to DOWN, receive UP outbox_down into current rank.
+    const std::vector<MigrationAntPOD> recv_from_up = exchange_direction(send_down, m_down_rank, m_up_rank, 400);
+
+    m_last_in_up = recv_from_up.size();
+    m_last_in_down = recv_from_down.size();
+
+    append_received_ants(recv_from_up);
+    append_received_ants(recv_from_down);
+}
+
 void Mpi2SoaBackend::maybe_print_migration_debug()
 {
     if (!mpi2_debug_migration_enabled()) {
         return;
     }
 
+    std::uint64_t global_ant_count = 0;
+    if (mpi2_debug_ant_count_enabled()) {
+        global_ant_count = mpi_runtime::allreduce_sum_uint64(static_cast<std::uint64_t>(m_local_ants.size()));
+    }
+
     std::cerr << "INFO mpi2 migration rank=" << m_rank
               << " step=" << m_step_counter
               << " local_ants=" << m_local_ants.size()
-              << " out_up=" << m_outbox_up.size()
-              << " out_down=" << m_outbox_down.size()
+              << " out_up=" << m_last_out_up
+              << " out_down=" << m_last_out_down
+              << " in_up=" << m_last_in_up
+              << " in_down=" << m_last_in_down;
+
+    if (mpi2_debug_ant_count_enabled()) {
+        std::cerr << " ants_global=" << global_ant_count
+                  << " ants_expected=" << m_expected_global_ants;
+    }
+
+    std::cerr
               << '\n';
 }
 

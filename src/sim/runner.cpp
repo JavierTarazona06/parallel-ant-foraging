@@ -63,6 +63,7 @@ void run_benchmark(const RunConfig& run_config,
             totals.k5_ns += iter_timing.k5_ns;
             totals.k_mpi_sync_ns += iter_timing.k_mpi_sync_ns;
             totals.k_mpi_halo_ns += iter_timing.k_mpi_halo_ns;
+            totals.k_mpi_migrate_ns += iter_timing.k_mpi_migrate_ns;
             totals.touched_raw_total += iter_timing.touched_raw_count;
             totals.touched_unique_total += iter_timing.touched_unique_count;
             totals.measured_iterations += 1;
@@ -104,6 +105,7 @@ void run_benchmark(const RunConfig& run_config,
         totals.k_mpi_sync_ns = mpi_runtime::allreduce_max_uint64(totals.k_mpi_sync_ns);
         if (mpi2_mode) {
             totals.k_mpi_halo_ns = mpi_runtime::allreduce_max_uint64(totals.k_mpi_halo_ns);
+            totals.k_mpi_migrate_ns = mpi_runtime::allreduce_max_uint64(totals.k_mpi_migrate_ns);
         }
         totals.r0_ns = mpi_runtime::allreduce_max_uint64(totals.r0_ns);
         totals.e0_ns = mpi_runtime::allreduce_max_uint64(totals.e0_ns);
@@ -139,6 +141,7 @@ void run_benchmark(const RunConfig& run_config,
     }
     if (mpi2_mode) {
         std::cout << "METRIC k_mpi_halo_ns " << totals.k_mpi_halo_ns << '\n';
+        std::cout << "METRIC k_mpi_migrate_ns " << totals.k_mpi_migrate_ns << '\n';
     }
     std::cout << "METRIC r0_ns " << totals.r0_ns << '\n';
     std::cout << "METRIC e0_ns " << totals.e0_ns << '\n';
