@@ -4,6 +4,7 @@
 #include <cstddef>
 
 #include "backend.hpp"
+#include "../mpi2/local_pheromone_grid.hpp"
 
 class Mpi2SoaBackend final : public Backend
 {
@@ -24,6 +25,7 @@ private:
     };
 
     void initialize_partition_if_needed(const WorldState& world);
+    void initialize_local_pheromone_grid(const WorldState& world);
     bool owns_cell_global(std::int32_t x, std::int32_t y) const;
     LocalCellCoord global_to_local(std::int32_t x, std::int32_t y) const;
     void maybe_print_partition_debug();
@@ -40,4 +42,6 @@ private:
     int m_down_rank{-1};
     bool m_partition_ready{false};
     bool m_partition_logged{false};
+    bool m_local_grid_ready{false};
+    LocalPheromoneGrid m_local_phen;
 };

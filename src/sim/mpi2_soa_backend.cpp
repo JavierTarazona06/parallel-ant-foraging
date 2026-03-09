@@ -55,6 +55,9 @@ std::unique_ptr<Renderer> Mpi2SoaBackend::create_renderer(const fractal_land& la
 void Mpi2SoaBackend::initialize_partition_if_needed(const WorldState& world)
 {
     if (m_partition_ready) {
+        if (!m_local_grid_ready) {
+            initialize_local_pheromone_grid(world);
+        }
         return;
     }
 
@@ -77,7 +80,30 @@ void Mpi2SoaBackend::initialize_partition_if_needed(const WorldState& world)
     m_down_rank = (m_rank + 1 < m_size) ? (m_rank + 1) : MPI_PROC_NULL;
 
     m_partition_ready = true;
+    initialize_local_pheromone_grid(world);
     maybe_print_partition_debug();
+}
+
+void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
+{
+    if (!m_partition_ready || m_local_grid_ready) {
+        return;
+    }
+
+    const std::size_t local_h = m_y1 - m_y0;
+    m_local_phen.reset(m_global_w, local_h, -1.0);
+
+    for (std::size_t gy = m_y0; gy < m_y1; ++gy) {
+        const std::size_t ly = 1u + (gy - m_y0);
+        for (std::size_t gx = 0; gx < m_global_w; ++gx) {
+            const std::size_t lx = 1u + gx;
+            const auto cell = world.phen(gx, gy);
+            m_local_phen.v1(lx, ly) = cell[0];
+            m_local_phen.v2(lx, ly) = cell[1];
+        }
+    }
+
+    m_local_grid_ready = true;
 }
 
 bool Mpi2SoaBackend::owns_cell_global(std::int32_t x, std::int32_t y) const

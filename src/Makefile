@@ -27,12 +27,12 @@ default:	help
 all: $(ALL)
 
 clean:
-	@rm -fr *.o app/*.o sim/*.o mpi/*.o *.exe *~
+	@rm -fr *.o app/*.o sim/*.o mpi/*.o mpi2/*.o *.exe *~
 
 .cpp.o:
 	$(CXX) $(CXXFLAGS2) -c $^ -o $@	
 
-ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o app/cli.o sim/backend.o sim/aos_backend.o sim/soa_backend.o sim/omp_soa_backend.o sim/mpi1_soa_backend.o sim/mpi2_soa_backend.o sim/runner.o mpi/mpi_runtime.o ant_simu.o
+ant_simu.exe : ant.o ants_soa.o fractal_land.o renderer.o window.o timing_profile.o app/cli.o sim/backend.o sim/aos_backend.o sim/soa_backend.o sim/omp_soa_backend.o sim/mpi1_soa_backend.o sim/mpi2_soa_backend.o sim/runner.o mpi/mpi_runtime.o mpi2/local_pheromone_grid.o ant_simu.o
 	$(CXX) $(CXXFLAGS2) $^ -o $@ $(LIB)	
 
 help:
