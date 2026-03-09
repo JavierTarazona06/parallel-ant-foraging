@@ -16,6 +16,7 @@ struct IterTimingNs {
     std::uint64_t k4_ns{0};
     std::uint64_t k5_ns{0};
     std::uint64_t k_mpi_sync_ns{0};
+    std::uint64_t k_mpi_halo_ns{0};
     std::uint64_t touched_raw_count{0};
     std::uint64_t touched_unique_count{0};
 };

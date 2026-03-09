@@ -4,12 +4,14 @@
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include <mpi.h>
 
 #include "../mpi/mpi_runtime.hpp"
 #include "../renderer.hpp"
+#include "../timing_profile.hpp"
 
 namespace {
 
@@ -41,6 +43,15 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 {
     // MPI2 skeleton: we only initialize and validate the 1D row partition.
     initialize_partition_if_needed(world);
+
+    const std::uint64_t halo_start_ns = profile_now_ns();
+    halo_exchange();
+    const std::uint64_t halo_end_ns = profile_now_ns();
+
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k_mpi_halo_ns += (halo_end_ns - halo_start_ns);
+    }
+
     (void)sim_config;
 }
 
@@ -104,6 +115,46 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
     }
 
     m_local_grid_ready = true;
+}
+
+void Mpi2SoaBackend::halo_exchange()
+{
+    if (!m_partition_ready || !m_local_grid_ready) {
+        return;
+    }
+    if (m_local_phen.local_height() == 0u) {
+        return;
+    }
+
+    halo_exchange_channel(m_local_phen.v1_data(), 100);
+    halo_exchange_channel(m_local_phen.v2_data(), 200);
+}
+
+void Mpi2SoaBackend::halo_exchange_channel(double* channel_base, int tag_base)
+{
+    if (channel_base == nullptr) {
+        return;
+    }
+
+    const std::size_t local_h = m_local_phen.local_height();
+    const std::size_t stride = m_local_phen.stride();
+    assert(stride <= static_cast<std::size_t>(std::numeric_limits<int>::max()));
+
+    const int row_count = static_cast<int>(stride);
+    double* top_halo = channel_base;
+    double* first_interior = channel_base + stride;
+    double* last_interior = channel_base + local_h * stride;
+    double* bottom_halo = channel_base + (local_h + 1u) * stride;
+
+    // 1) send first interior row to UP, receive DOWN first interior row into bottom halo.
+    MPI_Sendrecv(first_interior, row_count, MPI_DOUBLE, m_up_rank, tag_base + 1,
+                 bottom_halo, row_count, MPI_DOUBLE, m_down_rank, tag_base + 1,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // 2) send last interior row to DOWN, receive UP last interior row into top halo.
+    MPI_Sendrecv(last_interior, row_count, MPI_DOUBLE, m_down_rank, tag_base + 2,
+                 top_halo, row_count, MPI_DOUBLE, m_up_rank, tag_base + 2,
+                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
 bool Mpi2SoaBackend::owns_cell_global(std::int32_t x, std::int32_t y) const

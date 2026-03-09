@@ -26,6 +26,8 @@ private:
 
     void initialize_partition_if_needed(const WorldState& world);
     void initialize_local_pheromone_grid(const WorldState& world);
+    void halo_exchange();
+    void halo_exchange_channel(double* channel_base, int tag_base);
     bool owns_cell_global(std::int32_t x, std::int32_t y) const;
     LocalCellCoord global_to_local(std::int32_t x, std::int32_t y) const;
     void maybe_print_partition_debug();
