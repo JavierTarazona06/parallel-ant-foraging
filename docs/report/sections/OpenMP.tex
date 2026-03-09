@@ -1,6 +1,6 @@
 \section{Parallélisation en mémoire partagée (OpenMP)}
 
-\subsection{Stratégie retenue}
+\subsection{Stratégie de parallélisation}
 
 \subsubsection{Objectif}
 
@@ -78,7 +78,9 @@ En OpenMP, \(K2/K3\) sont accumulés localement par thread puis fusionnés aprè
   \item \(K2/K3\) décrivent la quantité de travail, mais ne doivent pas être lus comme temps mur.
 \end{itemize}
 
-\subsection{Protocole expérimental}
+\subsection{Résultat du Profilage}
+
+\subsubsection{Protocole expérimental}
 
 Campagnes utilisées:
 \begin{itemize}[leftmargin=*]
@@ -101,20 +103,27 @@ Commande type:
   --threads 1,2,4,8 --iterations 1200 --warmup 200 --reps 7
 \end{verbatim}
 
-\subsection{Résultats}
+La variation relative du temps noyau est définie par :
+\[
+\Delta(K0_p)=K0_p-K0_1,
+\qquad
+\Delta_{\%}(K0_p)=100\times\frac{K0_p-K0_1}{K0_1}
+\]
+où \(K0_1\) désigne la valeur mesurée avec 1 thread.
 
 \begin{table}[H]
 \centering
-\caption{OpenMP SoA: temps noyau et speedup selon le nombre de threads}
+\scriptsize
+\caption{OpenMP SoA : temps noyau, variation relative et speedup selon le nombre de threads}
 \label{tab:omp-speedup}
-\begin{tabular}{@{}rrrrr@{}}
+\begin{tabular}{@{}rrrrrrr@{}}
 \toprule
-\textbf{Threads} & \textbf{K0 moyen (ms/iter)} & \textbf{écart-type} & \textbf{Speedup \(S(p)\)} & \textbf{Efficacité \(E(p)=S/p\)} \\
+\textbf{Threads} & \textbf{K0 moyen} & \textbf{écart-type} & \textbf{\(\Delta\)} & \textbf{\(\Delta_{\%}\)} & \textbf{Speedup \(S(p)\)} & \textbf{Efficacité \(E(p)=S/p\)} \\
 \midrule
-1 & 8.684056 & 0.264434 & 1.000000 & 1.0000 \\
-2 & 5.539441 & 0.275826 & 1.567677 & 0.7838 \\
-4 & 4.612187 & 0.373999 & 1.882850 & 0.4707 \\
-8 & 3.564663 & 0.806521 & 2.436151 & 0.3045 \\
+1 & 8.684056 & 0.264434 & +0.000000 & +0.000 & 1.000000 & 1.0000 \\
+2 & 5.539441 & 0.275826 & -3.144615 & -36.211 & 1.567677 & 0.7838 \\
+4 & 4.612187 & 0.373999 & -4.071869 & -46.889 & 1.882850 & 0.4707 \\
+8 & 3.564663 & 0.806521 & -5.119393 & -58.952 & 2.436151 & 0.3045 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -148,11 +157,31 @@ S(4)=\frac{8.684056}{4.612187}=1.882850308 \approx 1.882850
 S(8)=\frac{8.684056}{3.564663}=2.436151334 \approx 2.436151
 \]
 
+\subsubsection{Définition et lecture de l'efficacité}
+
+L'efficacité est définie par :
+\[
+E(p)=\frac{S(p)}{p}
+\]
+
+Une efficacité proche de 1 signifie que l'augmentation du nombre de threads est bien convertie
+en accélération utile. À l'inverse, lorsque \(E(p)\) diminue, cela signifie qu'une partie du gain
+potentiel est perdue à cause des overheads, de la bande passante mémoire ou des parties encore
+partiellement séquentielles. En OpenMP, cette baisse d'efficacité vient surtout du caractère
+\emph{memory-bound} de \(K4\) et de la phase de fusion sparse qui limite la scalabilité de \(K1\).
+
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.82\textwidth]{imgs/openmp/openmp_speedup.png}
   \caption{Speedup mesuré OpenMP (SoA) vs speedup idéal linéaire}
   \label{fig:omp-speedup}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.82\textwidth]{imgs/openmp/openmp_efficiency.png}
+  \caption{Efficacité OpenMP (SoA) en fonction du nombre de threads}
+  \label{fig:omp-efficiency}
 \end{figure}
 
 \begin{figure}[H]
@@ -227,7 +256,7 @@ En complément de l'argument ``absence de races'', on vérifie deux invariants s
 \end{tabular}
 \end{table}
 
-\subsection{Analyse et discussion des résultats}
+\subsection{Analyse des Résultats}
 
 Le speedup croît bien avec le nombre de threads, mais reste loin de la droite idéale:
 \[
@@ -248,6 +277,15 @@ S(8)=2.4362 \quad (\text{vs idéal } 8.0)
   K4:\ 0.649239 \rightarrow 0.317306\ \text{ms/iter (1 $\to$ 8)} \approx -51.1\%.
   \]
   Le gain est net mais non linéaire, typique d'une limite de bande passante mémoire.
+\end{itemize}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Lecture de l'efficacité.}
+  La Figure~\ref{fig:omp-efficiency} et la Table~\ref{tab:omp-speedup} montrent que l'efficacité
+  décroît avec le nombre de threads (\(E(2)=0.7838\), \(E(4)=0.4707\), \(E(8)=0.3045\)).
+  Cette baisse est cohérente avec les deux limitations principales déjà observées :
+  la partie \(K4\), contrainte par la mémoire, et la fusion post-parallèle de \(K1\), qui conserve
+  une partie séquentielle non négligeable.
 \end{itemize}
 
 \begin{itemize}[leftmargin=*]
@@ -272,9 +310,21 @@ S(8)=2.4362 \quad (\text{vs idéal } 8.0)
   OMP (buffers touched, merge, dedup, replay), indépendamment du speedup de threading.
 \end{itemize}
 
-\noindent\textbf{Bilan.}
-\begin{itemize}[leftmargin=*]
-  \item accélération mesurable et reproductible (\(S(8)\approx 2.44\)),
-  \item \(K4\) limité principalement par la mémoire,
-  \item \(K1\) limité par la fusion sparse post-parallèle.
-\end{itemize}
+\subsection{Interprétation}
+
+Les Tables~\ref{tab:omp-speedup}, \ref{tab:omp-breakdown} et \ref{tab:omp-k23-worktime},
+ainsi que les Figures~\ref{fig:omp-speedup}, \ref{fig:omp-efficiency}, \ref{fig:omp-k0}
+et \ref{fig:omp-breakdown},
+montrent une image globalement cohérente.
+
+La parallélisation OpenMP apporte un gain réel sur cette machine :
+la variation relative de \(K0\) devient de plus en plus négative lorsque le nombre de threads
+augmente, jusqu'à \(-58.95\%\) à 8 threads, ce qui correspond à un speedup de \(2.44\).
+Autrement dit, le backend \texttt{omp+soa} accélère bien, même si l'on reste loin du speedup
+linéaire idéal.
+
+La table de décomposition confirme ensuite que le bénéfice vient principalement de la baisse de
+\(K1\), tandis que \(K4\) reste limité par la bande passante mémoire et que la phase de fusion
+sparse empêche une scalabilité parfaite. Enfin, les valeurs \(K2/K3\) rappellent que la quantité
+de travail interne ne disparaît pas : OpenMP réduit surtout le temps mur, pas le volume total de
+travail réalisé par l'ensemble des threads.

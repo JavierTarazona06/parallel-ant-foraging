@@ -56,10 +56,12 @@ Le choix de types compacts réduit l'empreinte mémoire par agent et améliore l
 particulièrement pertinent puisque la boucle $K1$ parcourt plusieurs milliers de fourmis.
 
 Un point important pour la reproductibilité est la gestion de la graine RNG par fourmi. Dans le code AoS
-\emph{baseline}, le champ \texttt{m\_seed} est utilisé dans \texttt{ant::advance} (\texttt{src/ant.cpp}).
-La version SoA rend ce point explicite : chaque fourmi possède sa graine \texttt{seed[i]} et les fonctions de
-génération aléatoire la mettent à jour par référence. Pour garder une comparabilité maximale, la formule du
-générateur est conservée entre AoS et SoA.
+\emph{baseline}, le champ \texttt{m\_seed} est utilisé dans \texttt{ant::advance} (\texttt{src/ant.cpp}) mais
+n'était pas initialisé dans le constructeur (\texttt{src/ant.hpp}), ce qui induit un \emph{comportement indéfini}
+et rend le baseline instable. La vectorisation impose de rendre cette donnée explicite : chaque fourmi possède
+sa graine \texttt{seed[i]} et les fonctions de génération aléatoire la mettent à jour par référence. Pour garder
+une comparabilité maximale, la formule du générateur est conservée ; seule l'initialisation devient correcte et
+déterministe.
 
 \subsubsection{Application dans le noyau : \texttt{advance\_time\_soa}}
 
@@ -101,7 +103,7 @@ vise prioritairement le noyau d'avance des fourmis.
 
 \noindent
 Les résultats présentés ci-dessous proviennent de la campagne de mesure:\\
-\texttt{results/test\_vectorisation\_layout\_local2/soa/latest/summary.md}. La configuration utilisée
+\texttt{results/test\_vectorisation\_layout/soa/20260227\_115411/summary.md}. La configuration utilisée
 est la suivante: layout \texttt{soa}, 5 répétitions, 1200 itérations par répétition, 200 itérations de
 \textit{warm-up}, 1000 itérations mesurées, et exécution avec \texttt{OMP\_NUM\_THREADS=1}.
 
@@ -113,9 +115,9 @@ est la suivante: layout \texttt{soa}, 5 répétitions, 1200 itérations par rép
 \toprule
 \textbf{Partie} & \textbf{ms moyen} & \textbf{écart-type} \\
 \midrule
-P0 & 8.189029 & 0.695765 \\
-P1 & 1.151506 & 0.574463 \\
-P2 & 0.123899 & 0.055120 \\
+P0 & 44.024725 & 1.211201 \\
+P1 & 0.951707 & 0.044184 \\
+P2 & 0.072038 & 0.007817 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -128,13 +130,13 @@ P2 & 0.123899 & 0.055120 \\
 \toprule
 \textbf{Partie} & \textbf{ms/iter moyen} & \textbf{écart-type} & \textbf{\% kernel} \\
 \midrule
-K1 & 7.691928 & 0.284915 & 94.2430 \\
-K2 & 3.269661 & 0.117760 & 40.0605 \\
-K3 & 2.769702 & 0.146911 & 33.9349 \\
-K4 & 0.458642 & 0.029528 & 5.6194 \\
-K5 & 0.009918 & 0.001233 & 0.1215 \\
-R0 & 2.248921 & 0.137798 & n/a \\
-E0 & 0.005612 & 0.000447 & n/a \\
+K1 & 4.264492 & 0.022742 & 94.0300 \\
+K2 & 3.230802 & 0.017821 & 71.2376 \\
+K3 & 0.668624 & 0.005969 & 14.7428 \\
+K4 & 0.266004 & 0.004142 & 5.8653 \\
+K5 & 0.004469 & 0.000404 & 0.0985 \\
+R0 & 1.024001 & 0.013386 & n/a \\
+E0 & 0.002005 & 0.000105 & n/a \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -148,13 +150,13 @@ E0 & 0.005612 & 0.000447 & n/a \\
 \toprule
 \textbf{Répétition} & \textbf{T\_iter\_total (ms)} & \textbf{T\_kernel (ms)} & \textbf{T\_render (ms)} & \textbf{fourmis/s} \\
 \midrule
-1 & 10.065456 & 7.899807 & 2.160426 & 632926.880286 \\
-2 & 10.743768 & 8.415819 & 2.321891 & 594119.265468 \\
-3 & 10.312283 & 8.119618 & 2.187337 & 615792.511039 \\
-4 & 9.861015 & 7.762009 & 2.093800 & 644163.165399 \\
-5 & 11.099146 & 8.611749 & 2.481150 & 580602.124544 \\
-Moyenne & 10.416334 & 8.161800 & 2.248921 & 613520.789347 \\
-Écart-type & 0.450725 & 0.315351 & 0.137798 & 23582.917192 \\
+1 & 5.572491 & 4.550202 & 1.020098 & 1098852.270736 \\
+2 & 5.528406 & 4.507923 & 1.018436 & 1109158.323270 \\
+3 & 5.615466 & 4.574892 & 1.038652 & 1092921.937721 \\
+4 & 5.581273 & 4.540269 & 1.039038 & 1101256.219797 \\
+5 & 5.508628 & 4.502948 & 1.003779 & 1110383.627732 \\
+Moyenne & 5.561253 & 4.535247 & 1.024001 & 1102514.475851 \\
+Écart-type & 0.038248 & 0.026872 & 0.013386 & 6528.031897 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -162,7 +164,7 @@ Moyenne & 10.416334 & 8.161800 & 2.248921 & 613520.789347 \\
 \noindent
 Fraction parallélisable candidate (layout SoA):
 \[
-F = (K1 + K4) / K0 = 0.997787
+F = (K1 + K4) / K0 = 0.998952
 \]
 
 \begin{table}[H]
@@ -173,10 +175,10 @@ F = (K1 + K4) / K0 = 0.997787
 \toprule
 \textbf{Threads} & \textbf{S(p)} \\
 \midrule
-2 & 1.997252 \\
-4 & 3.983556 \\
-8 & 7.923679 \\
-16 & 15.676438 \\
+2 & 1.997906 \\
+4 & 3.987463 \\
+8 & 7.941739 \\
+16 & 15.752373 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -185,10 +187,10 @@ F = (K1 + K4) / K0 = 0.997787
 
 \noindent
 Afin d'évaluer l'impact de la vectorisation SoA de manière contrôlée, nous comparons deux campagnes de mesure
-exécutées sur la même machine, avec les mêmes paramètres et le même script de profilage:
+exécutées sur la même machine, avec les mêmes paramètres et le même script de profilage, à 43~s d'intervalle :
 \begin{itemize}[leftmargin=*]
-    \item AoS (baseline) : \texttt{results/test\_vectorisation\_layout\_local2/aos/latest/summary.md} ;
-    \item SoA (vectorisé) : \texttt{results/test\_vectorisation\_layout\_local2/soa/latest/summary.md}.
+    \item AoS (baseline) : \texttt{results/test\_vectorisation\_layout/aos/20260227\_115454/summary.md} ;
+    \item SoA (vectorisé) : \texttt{results/test\_vectorisation\_layout/soa/20260227\_115411/summary.md}.
 \end{itemize}
 La variation relative est définie par :
 \[
@@ -203,40 +205,51 @@ La variation relative est définie par :
 \toprule
 \textbf{Métrique} & \textbf{AoS} & \textbf{SoA} & \textbf{$\Delta$} & \textbf{$\Delta_{\%}$} \\
 \midrule
-$T_{\text{kernel}}$ (ms/iter) & 7.686815 & 8.161800 & +0.474985 & +6.179 \\
-$K1$ (ms/iter) & 7.266526 & 7.691928 & +0.425402 & +5.854 \\
-$R0$ (ms/iter) & 2.109269 & 2.248921 & +0.139652 & +6.620 \\
-$T_{\text{iter,total}}$ (ms/iter) & 9.801146 & 10.416334 & +0.615188 & +6.277 \\
-fourmis/s & 654695.265978 & 613520.789347 & -41174.476631 & -6.289 \\
+$T_{\text{kernel}}$ (ms/iter) & 4.533697 & 4.535247 & +0.001550 & +0.034 \\
+$K1$ (ms/iter) & 4.257748 & 4.264492 & +0.006744 & +0.158 \\
+$R0$ (ms/iter) & 1.040353 & 1.024001 & -0.016352 & -1.572 \\
+$T_{\text{iter,total}}$ (ms/iter) & 5.576019 & 5.561253 & -0.014766 & -0.265 \\
+fourmis/s & 1102929.095441 & 1102514.475851 & -414.619590 & -0.038 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{enumerate}[leftmargin=*]
-    \item \textbf{Sur cette campagne locale, SoA est plus lent que AoS.}
-    Les temps noyau \(T_{\text{kernel}}\) (\(\approx K0\)) passent de
-    \(7.686815 \pm 0.631129\) (AoS) à \(8.161800 \pm 0.315351\) ms/iter (SoA),
-    soit \(\Delta_{\%}=+6.179\%\). De même, \(K1\) passe de
-    \(7.266526 \pm 0.571768\) à \(7.691928 \pm 0.284915\) ms/iter (\(+5.854\%\)).
-    Le changement de layout seul ne garantit donc pas un gain systématique.
+    \item \textbf{Pas de speedup mesurable sur le noyau (K0/K1).}
+    Les temps noyau \(T_{\text{kernel}}\) (\(\approx K0\)) sont quasi identiques : AoS \(4.533697 \pm 0.037727\)
+    contre SoA \(4.535247 \pm 0.026872\) ms/iter, soit \(\Delta_{\%}=+0.034\%\) (légère dégradation SoA).
+    De même, \(K1\) passe de \(4.257748 \pm 0.030779\) (AoS) à \(4.264492 \pm 0.022742\) ms/iter (SoA),
+    soit \(\Delta_{\%}=+0.158\%\).
+    Ces écarts sont très inférieurs aux dispersions inter-répétitions (écarts-types), ce qui ne permet pas
+    de conclure à un gain significatif sur le noyau via le seul changement de layout des attributs des fourmis.
 
-    \item \textbf{Hotspots stables: \(K1\) reste dominant.}
-    Dans les deux layouts, \(K1\) reste proche de \(94\%\) du noyau
-    (AoS: \(94.5323\%\), SoA: \(94.2430\%\)). La structure de coût reste donc globalement
-    la même, et la vectorisation de données n'a pas déplacé le goulot principal.
+    \item \textbf{La distribution des hotspots reste inchangée.}
+    Dans les deux layouts, \(K1\) représente environ \(94\%\) du temps noyau
+    (AoS: \(93.9134\%\), SoA: \(94.0300\%\)).
+    Au sein de \(K1\), \(K2\) reste la composante dominante : il pèse environ \(71\%\) du noyau
+    (AoS: \(71.1255\%\), SoA: \(71.2376\%\)).
+    Autrement dit, le coût principal demeure la logique interne d'avance des fourmis (branchements,
+    choix aléatoires, condition \texttt{consumed\_time<1}, et surtout accès/écritures indirectes sur
+    \texttt{pheronome} et accès à \texttt{land}), plutôt que le stockage des attributs
+    \texttt{x/y/state/seed}.
 
-    \item \textbf{Le coût hors noyau augmente aussi en SoA.}
-    Le rendu \(R0\) augmente de \(2.109269\) à \(2.248921\) ms/iter (\(+6.620\%\)),
-    ce qui contribue à la hausse du temps total
-    (\(9.801146 \rightarrow 10.416334\) ms/iter, \(+6.277\%\)).
+    \item \textbf{Légère amélioration du rendu, sans impact sur le calcul.}
+    Le coût de rendu \(R0\) diminue de \(1.040353 \pm 0.015469\) (AoS) à \(1.024001 \pm 0.013386\) ms/iter (SoA),
+    soit \(\Delta_{\%}=-1.572\%\). Cette baisse explique la petite amélioration du temps total par itération
+    (\(\Delta_{\%}=-0.265\%\)), alors même que le noyau de calcul reste inchangé. Le gain observé est donc
+    principalement hors noyau.
 
-    \item \textbf{Débit en baisse cohérente avec \(K0\).}
-    Le débit passe de \(654695.265978\) (AoS) à \(613520.789347\) fourmis/s (SoA),
-    soit \(-6.289\%\), cohérent avec l'augmentation de \(T_{\text{kernel}}\).
+    \item \textbf{Débit quasi identique.}
+    Le débit passe de \(1102929.095441 \pm 9173.468667\) 
+    (AoS) à \\
+    \(1102514.475851 \pm 6528.031897\) fourmis/s (SoA),
+    soit \(\Delta_{\%}=-0.038\%\). Cette stabilité est cohérente avec l'absence de gain sur \(T_{\text{kernel}}\),
+    puisque le débit (tel que calculé par le script) dépend essentiellement du temps noyau.
 
-    \item \textbf{Interprétation.}
-    Cette campagne montre surtout que SoA est un \emph{pré-requis d'architecture} (données
-    contiguës, backend plus simple à paralléliser) plutôt qu'une garantie d'accélération
-    immédiate en exécution séquentielle. Le gain de performance apparaît davantage dans
-    la phase OpenMP où ce layout est exploité avec parallélisme.
+    \item \textbf{Interprétation et suite.}
+    La vectorisation SoA constitue surtout une \emph{restructuration} conforme au point 5.1 (tableaux par attribut,
+    fourmi repérée par indice) et un prérequis pour la suite (5.2 OpenMP, et potentielles transformations
+    plus profondes). En revanche, ces mesures suggèrent qu'une amélioration de performance du noyau exigera
+    d'attaquer la partie dominante \(K2\) (accès mémoire sur la carte de phéromones, organisation des mises à jour,
+    réduction de divergence du \texttt{while}, parallélisation), plutôt que le seul layout des attributs agents.
 \end{enumerate}
