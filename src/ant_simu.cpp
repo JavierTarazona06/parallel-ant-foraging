@@ -139,12 +139,31 @@ int main(int nargs, char* argv[])
         return 1;
     }
 
-    const RunConfig run_config = parsed_config->run;
+    RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
     const bool use_mpi = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
+    const bool use_mpi2 = (run_config.exec_model == ExecModel::mpi2);
     if (use_mpi) {
         mpi_runtime::init(&nargs, &argv);
     }
+
+    if (use_mpi2 && !run_config.benchmark) {
+        if (!use_mpi || mpi_runtime::is_root()) {
+            std::cerr << "ERROR mpi2 supports benchmark/no-render only (use --benchmark --no-render)\n";
+        }
+        if (use_mpi) {
+            mpi_runtime::finalize();
+        }
+        return 1;
+    }
+
+    if (use_mpi2 && run_config.render) {
+        if (!use_mpi || mpi_runtime::is_root()) {
+            std::cerr << "INFO mpi2: forcing no-render\n";
+        }
+        run_config.render = false;
+    }
+
     const std::size_t thread_count = configure_thread_count(run_config);
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
