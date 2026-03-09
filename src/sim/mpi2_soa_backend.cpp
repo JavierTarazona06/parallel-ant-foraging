@@ -17,6 +17,13 @@ namespace {
 
 constexpr std::size_t kHaloWidth = 1u;
 
+// Baseline MPI2 migration policy (deferred migration):
+// In this project, an ant can do multiple substeps per iteration (consumed_time < 1.0).
+// For the baseline mpi2 path, when an ant crosses a domain boundary, it is transferred
+// to the neighbor rank but does not continue its remaining substeps in the same iteration.
+// It continues on the destination rank at the next iteration.
+// This is a documented approximation for course-level bonus scope.
+
 bool mpi2_debug_partition_enabled()
 {
     const char* env = std::getenv("MPI2_DEBUG_PARTITION");
