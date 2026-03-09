@@ -95,7 +95,18 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k4_ns += (k4_end_ns - k4_start_ns);
     }
 
-    step_local_ants(world, sim_config);
+    std::size_t food_delta_local = 0;
+    step_local_ants(world, sim_config, food_delta_local);
+
+    const std::uint64_t food_sync_start_ns = profile_now_ns();
+    const std::uint64_t food_delta_global_u64 =
+        mpi_runtime::allreduce_sum_uint64(static_cast<std::uint64_t>(food_delta_local));
+    world.food_quantity += static_cast<std::size_t>(food_delta_global_u64);
+    const std::uint64_t food_sync_end_ns = profile_now_ns();
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k_mpi_sync_ns += (food_sync_end_ns - food_sync_start_ns);
+    }
+
     const std::uint64_t migrate_start_ns = profile_now_ns();
     exchange_migrating_ants();
     const std::uint64_t migrate_end_ns = profile_now_ns();
@@ -322,7 +333,7 @@ void Mpi2SoaBackend::halo_exchange_channel(double* channel_base, int tag_base)
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 }
 
-void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_config)
+void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_config, std::size_t& food_delta_local)
 {
     if (!m_local_ants_ready || m_local_ants.empty()) {
         m_outbox_up.clear();
@@ -342,7 +353,7 @@ void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_con
     std::size_t write_idx = 0;
     const std::size_t initial_count = m_local_ants.size();
     for (std::size_t i = 0; i < initial_count; ++i) {
-        const bool migrated = advance_one_local_ant(world, sim_config, i);
+        const bool migrated = advance_one_local_ant(world, sim_config, i, food_delta_local);
         if (migrated) {
             enqueue_migrated_ant(i);
             continue;
@@ -366,8 +377,10 @@ void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_con
     }
 }
 
-bool Mpi2SoaBackend::advance_one_local_ant(WorldState& world, const SimConfig& sim_config, std::size_t ant_idx)
+bool Mpi2SoaBackend::advance_one_local_ant(WorldState& world, const SimConfig& sim_config,
+                                           std::size_t ant_idx, std::size_t& food_delta_local)
 {
+    (void)world;
     std::uint32_t seed = m_local_ants.seed[ant_idx];
     std::uint8_t state = m_local_ants.state[ant_idx];
     std::int32_t x = m_local_ants.x[ant_idx];
@@ -432,7 +445,7 @@ bool Mpi2SoaBackend::advance_one_local_ant(WorldState& world, const SimConfig& s
 
         if ((x == sim_config.pos_nest.x) && (y == sim_config.pos_nest.y)) {
             if (state == 1u) {
-                world.food_quantity += 1;
+                food_delta_local += 1u;
             }
             state = 0u;
         }

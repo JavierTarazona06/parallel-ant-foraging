@@ -85,8 +85,9 @@ private:
                                                     int tag_base);
     void append_received_ants(const std::vector<MigrationAntPOD>& received);
     void exchange_migrating_ants();
-    void step_local_ants(WorldState& world, const SimConfig& sim_config);
-    bool advance_one_local_ant(WorldState& world, const SimConfig& sim_config, std::size_t ant_idx);
+    void step_local_ants(WorldState& world, const SimConfig& sim_config, std::size_t& food_delta_local);
+    bool advance_one_local_ant(WorldState& world, const SimConfig& sim_config,
+                               std::size_t ant_idx, std::size_t& food_delta_local);
     void enqueue_migrated_ant(std::size_t ant_idx);
     void maybe_print_migration_debug();
     bool within_local_plus_halo_global(std::int32_t x, std::int32_t y) const;
