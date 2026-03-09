@@ -8,7 +8,10 @@
 #include "../renderer.hpp"
 #include "../timing_profile.hpp"
 
-Mpi1SoaBackend::Mpi1SoaBackend(AntsSoA& ants) : m_ants(ants) {}
+Mpi1SoaBackend::Mpi1SoaBackend(AntsSoA& ants, std::size_t mpi_sync_every)
+    : m_ants(ants), m_sync_every(std::max<std::size_t>(1, mpi_sync_every))
+{
+}
 
 const char* Mpi1SoaBackend::name() const
 {
@@ -46,10 +49,16 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     world.phen.update();
     const std::uint64_t update_end_ns = profile_now_ns();
 
-    const std::uint64_t phen_sync_start_ns = profile_now_ns();
-    mpi_runtime::allreduce_max_double_array(world.phen.v1_data(), world.phen.v1_size());
-    mpi_runtime::allreduce_max_double_array(world.phen.v2_data(), world.phen.v2_size());
-    mpi_sync_ns += (profile_now_ns() - phen_sync_start_ns);
+    // Iteration counter starts at 0, so iteration 0 always synchronizes for any K>=1.
+    const bool do_phen_sync = ((m_iteration % m_sync_every) == 0u);
+    if (do_phen_sync) {
+        const std::uint64_t phen_sync_start_ns = profile_now_ns();
+        mpi_runtime::allreduce_max_double_array(world.phen.v1_data(), world.phen.v1_size());
+        mpi_runtime::allreduce_max_double_array(world.phen.v2_data(), world.phen.v2_size());
+        mpi_sync_ns += (profile_now_ns() - phen_sync_start_ns);
+    }
+
+    ++m_iteration;
 
     if (world.iter_timing != nullptr) {
         world.iter_timing->k4_ns += (evap_end_ns - evap_start_ns);

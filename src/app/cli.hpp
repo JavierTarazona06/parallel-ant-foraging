@@ -19,6 +19,7 @@ struct RunConfig {
     bool render{true};
     AntLayout layout{AntLayout::aos};
     ExecModel exec_model{ExecModel::serial};
+    std::size_t mpi_sync_every{1};
     std::optional<std::size_t> threads{};
 };
 

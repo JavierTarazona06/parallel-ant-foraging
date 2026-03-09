@@ -21,7 +21,7 @@ std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
             std::cerr << "Execution model 'mpi1' supports only soa.\n";
             return nullptr;
         }
-        return std::make_unique<Mpi1SoaBackend>(ants_soa);
+        return std::make_unique<Mpi1SoaBackend>(ants_soa, run_config.mpi_sync_every);
     }
 
     if (run_config.exec_model == ExecModel::mpi2) {

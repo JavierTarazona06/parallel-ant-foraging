@@ -35,6 +35,7 @@ void print_usage(const char* exe_name)
     std::cout << "Usage: " << exe_name
               << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
               << " [--exec <serial|omp|mpi1|mpi2>]"
+              << " [--mpi-sync-every K]"
               << " [--threads N]"
               << " [--ants N] [--seed N] [--alpha X] [--beta X] [--epsilon X] [--init <nest|uniform>]\n";
 }
@@ -191,6 +192,20 @@ std::optional<ParsedConfig> parse_args(int nargs, char* argv[])
         if (arg.rfind("--exec=", 0) == 0) {
             if (!parse_exec_model_value(arg.substr(7), parsed.run.exec_model)) {
                 std::cerr << "Invalid value for --exec (expected serial|omp|mpi1|mpi2)\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (arg == "--mpi-sync-every") {
+            if (i + 1 >= nargs || !parse_positive_size_value(argv[++i], parsed.run.mpi_sync_every)) {
+                std::cerr << "Invalid value for --mpi-sync-every (expected integer >= 1)\n";
+                return std::nullopt;
+            }
+            continue;
+        }
+        if (arg.rfind("--mpi-sync-every=", 0) == 0) {
+            if (!parse_positive_size_value(arg.substr(17).c_str(), parsed.run.mpi_sync_every)) {
+                std::cerr << "Invalid value for --mpi-sync-every (expected integer >= 1)\n";
                 return std::nullopt;
             }
             continue;
