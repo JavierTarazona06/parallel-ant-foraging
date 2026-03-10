@@ -142,26 +142,10 @@ int main(int nargs, char* argv[])
     RunConfig run_config = parsed_config->run;
     const SimConfig sim_config = parsed_config->sim;
     const bool use_mpi = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
+    const bool use_mpi1 = (run_config.exec_model == ExecModel::mpi1);
     const bool use_mpi2 = (run_config.exec_model == ExecModel::mpi2);
     if (use_mpi) {
         mpi_runtime::init(&nargs, &argv);
-    }
-
-    if (use_mpi2 && !run_config.benchmark) {
-        if (!use_mpi || mpi_runtime::is_root()) {
-            std::cerr << "ERROR mpi2 supports benchmark/no-render only (use --benchmark --no-render)\n";
-        }
-        if (use_mpi) {
-            mpi_runtime::finalize();
-        }
-        return 1;
-    }
-
-    if (use_mpi2 && run_config.render) {
-        if (!use_mpi || mpi_runtime::is_root()) {
-            std::cerr << "INFO mpi2: forcing no-render\n";
-        }
-        run_config.render = false;
     }
 
     const std::size_t thread_count = configure_thread_count(run_config);
@@ -223,11 +207,12 @@ int main(int nargs, char* argv[])
     std::unique_ptr<Window> win;
     std::unique_ptr<Renderer> renderer;
     bool render_enabled = run_config.render;
-    if (use_mpi && render_enabled) {
+    if ((use_mpi1 || use_mpi2) && render_enabled && mpi_runtime::size() > 1) {
         if (mpi_runtime::is_root()) {
-            std::cerr << "INFO mpi1: forcing no-render\n";
+            std::cerr << "INFO " << exec_model_to_text(run_config.exec_model)
+                      << ": render enabled only on root rank (rank 0)\n";
         }
-        render_enabled = false;
+        render_enabled = mpi_runtime::is_root();
     }
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);

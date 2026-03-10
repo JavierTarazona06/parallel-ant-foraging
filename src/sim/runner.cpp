@@ -176,7 +176,8 @@ void run_interactive(const RunConfig& run_config,
                      Window* win,
                      std::size_t& food_quantity)
 {
-    (void)run_config;
+    const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
+    const bool local_event_owner = (!mpi_mode || mpi_runtime::is_root());
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
@@ -186,11 +187,23 @@ void run_interactive(const RunConfig& run_config,
 
     while (cont_loop) {
         ++it;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT) {
-                cont_loop = false;
+        if (local_event_owner) {
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT) {
+                    cont_loop = false;
+                }
             }
         }
+
+        if (mpi_mode) {
+            const std::uint64_t local_alive = cont_loop ? 1u : 0u;
+            const std::uint64_t global_alive = mpi_runtime::allreduce_sum_uint64(local_alive);
+            cont_loop = (global_alive == static_cast<std::uint64_t>(mpi_runtime::size()));
+        }
+        if (!cont_loop) {
+            break;
+        }
+
         WorldState world{land, phen, food_quantity, profile, nullptr};
         backend.step(world, sim_config);
         if (renderer != nullptr && win != nullptr) {
