@@ -74,9 +74,10 @@ private:
     void initialize_local_ants_if_needed();
     void initialize_local_pheromone_grid(const WorldState& world);
     void clear_halo(LocalPheromoneGrid& grid);
-    void local_k5_update(double alpha);
-    void local_k4_evaporation(double beta);
-    void apply_local_forcing(const SimConfig& sim_config);
+    void prepare_iteration_buffer();
+    void commit_iteration_buffer();
+    void local_k4_evaporation(LocalPheromoneGrid& grid, double beta);
+    void apply_local_forcing(LocalPheromoneGrid& grid, const SimConfig& sim_config);
     void halo_exchange();
     void halo_exchange_channel(double* channel_base, int tag_base);
     std::vector<MigrationAntPOD> pack_outbox(const LocalAntsSoA& outbox) const;
@@ -85,6 +86,7 @@ private:
                                                     int tag_base);
     void append_received_ants(const std::vector<MigrationAntPOD>& received);
     void exchange_migrating_ants();
+    void sync_global_state_for_render(WorldState& world);
     void step_local_ants(WorldState& world, const SimConfig& sim_config, std::size_t& food_delta_local);
     bool advance_one_local_ant(WorldState& world, const SimConfig& sim_config,
                                std::size_t ant_idx, std::size_t& food_delta_local);
@@ -118,6 +120,9 @@ private:
     std::size_t m_last_out_down{0};
     std::size_t m_last_in_up{0};
     std::size_t m_last_in_down{0};
+    double m_alpha{0.7};
+    std::vector<std::uint32_t> m_mark_epoch;
+    std::uint32_t m_epoch{1u};
     LocalAntsSoA m_local_ants;
     LocalAntsSoA m_outbox_up;
     LocalAntsSoA m_outbox_down;

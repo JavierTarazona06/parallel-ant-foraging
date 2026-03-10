@@ -72,6 +72,7 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     // MPI2 path: partition/halo + local-ant step + deferred migration outboxes.
     initialize_partition_if_needed(world);
     initialize_local_ants_if_needed();
+    m_alpha = sim_config.alpha;
 
     const std::uint64_t halo_start_ns = profile_now_ns();
     halo_exchange();
@@ -81,19 +82,11 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k_mpi_halo_ns += (halo_end_ns - halo_start_ns);
     }
 
-    const std::uint64_t k5_start_ns = profile_now_ns();
-    local_k5_update(sim_config.alpha);
-    apply_local_forcing(sim_config);
-    const std::uint64_t k5_end_ns = profile_now_ns();
-    const std::uint64_t k4_start_ns = k5_end_ns;
-    local_k4_evaporation(sim_config.beta);
-    apply_local_forcing(sim_config);
-    const std::uint64_t k4_end_ns = profile_now_ns();
-
-    if (world.iter_timing != nullptr) {
-        world.iter_timing->k5_ns += (k5_end_ns - k5_start_ns);
-        world.iter_timing->k4_ns += (k4_end_ns - k4_start_ns);
-    }
+    // Mirror serial SoA semantics for pheromones:
+    // ants read current map (m_local_phen), marks go to iteration buffer
+    // (m_local_next_phen), then evaporation is applied on the buffer and the
+    // buffer is committed as the next map.
+    prepare_iteration_buffer();
 
     std::size_t food_delta_local = 0;
     step_local_ants(world, sim_config, food_delta_local);
@@ -114,6 +107,27 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k_mpi_migrate_ns += (migrate_end_ns - migrate_start_ns);
     }
     maybe_print_migration_debug();
+
+    const std::uint64_t k4_start_ns = profile_now_ns();
+    local_k4_evaporation(m_local_next_phen, sim_config.beta);
+    const std::uint64_t k4_end_ns = profile_now_ns();
+
+    const std::uint64_t k5_start_ns = k4_end_ns;
+    commit_iteration_buffer();
+    apply_local_forcing(m_local_phen, sim_config);
+    const std::uint64_t k5_end_ns = profile_now_ns();
+
+    if (world.iter_timing != nullptr) {
+        world.iter_timing->k4_ns += (k4_end_ns - k4_start_ns);
+        world.iter_timing->k5_ns += (k5_end_ns - k5_start_ns);
+    }
+
+    // Renderer in mpi2 reads the global SoA/pheromone views.
+    // For interactive visualization we synchronize those views from local MPI2 state.
+    if (world.iter_timing == nullptr) {
+        sync_global_state_for_render(world);
+    }
+
     ++m_step_counter;
 }
 
@@ -177,6 +191,9 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
         }
     }
 
+    m_mark_epoch.assign(m_local_phen.element_count(), 0u);
+    m_epoch = 1u;
+
     m_local_grid_ready = true;
 }
 
@@ -208,67 +225,57 @@ void Mpi2SoaBackend::clear_halo(LocalPheromoneGrid& grid)
     }
 }
 
-void Mpi2SoaBackend::local_k5_update(double alpha)
+void Mpi2SoaBackend::prepare_iteration_buffer()
 {
     if (!m_local_grid_ready) {
         return;
     }
+    m_local_next_phen = m_local_phen;
+}
 
-    clear_halo(m_local_next_phen);
-
-    const std::size_t local_h = m_local_phen.local_height();
-    const std::size_t w = m_global_w;
-    for (std::size_t ly = 1; ly <= local_h; ++ly) {
-        for (std::size_t lx = 1; lx <= w; ++lx) {
-            const double v1_left = std::max(m_local_phen.v1(lx - 1, ly), 0.0);
-            const double v1_right = std::max(m_local_phen.v1(lx + 1, ly), 0.0);
-            const double v1_up = std::max(m_local_phen.v1(lx, ly - 1), 0.0);
-            const double v1_down = std::max(m_local_phen.v1(lx, ly + 1), 0.0);
-            const double v2_left = std::max(m_local_phen.v2(lx - 1, ly), 0.0);
-            const double v2_right = std::max(m_local_phen.v2(lx + 1, ly), 0.0);
-            const double v2_up = std::max(m_local_phen.v2(lx, ly - 1), 0.0);
-            const double v2_down = std::max(m_local_phen.v2(lx, ly + 1), 0.0);
-
-            const double next_v1 = alpha * std::max({v1_left, v1_right, v1_up, v1_down}) +
-                                   (1.0 - alpha) * 0.25 * (v1_left + v1_right + v1_up + v1_down);
-            const double next_v2 = alpha * std::max({v2_left, v2_right, v2_up, v2_down}) +
-                                   (1.0 - alpha) * 0.25 * (v2_left + v2_right + v2_up + v2_down);
-
-            m_local_next_phen.v1(lx, ly) = next_v1;
-            m_local_next_phen.v2(lx, ly) = next_v2;
-        }
+void Mpi2SoaBackend::commit_iteration_buffer()
+{
+    if (!m_local_grid_ready) {
+        return;
     }
-
     std::swap(m_local_phen, m_local_next_phen);
+    clear_halo(m_local_phen);
+
+    if (m_epoch == std::numeric_limits<std::uint32_t>::max()) {
+        std::fill(m_mark_epoch.begin(), m_mark_epoch.end(), 0u);
+        m_epoch = 1u;
+    } else {
+        ++m_epoch;
+    }
 }
 
-void Mpi2SoaBackend::local_k4_evaporation(double beta)
+void Mpi2SoaBackend::local_k4_evaporation(LocalPheromoneGrid& grid, double beta)
 {
     if (!m_local_grid_ready) {
         return;
     }
-    const std::size_t local_h = m_local_phen.local_height();
+    const std::size_t local_h = grid.local_height();
     const std::size_t w = m_global_w;
     for (std::size_t ly = 1; ly <= local_h; ++ly) {
         for (std::size_t lx = 1; lx <= w; ++lx) {
-            m_local_phen.v1(lx, ly) *= beta;
-            m_local_phen.v2(lx, ly) *= beta;
+            grid.v1(lx, ly) *= beta;
+            grid.v2(lx, ly) *= beta;
         }
     }
 }
 
-void Mpi2SoaBackend::apply_local_forcing(const SimConfig& sim_config)
+void Mpi2SoaBackend::apply_local_forcing(LocalPheromoneGrid& grid, const SimConfig& sim_config)
 {
     if (!m_local_grid_ready) {
         return;
     }
     if (owns_cell_global(sim_config.pos_food.x, sim_config.pos_food.y)) {
         const LocalCellCoord food = global_to_local(sim_config.pos_food.x, sim_config.pos_food.y);
-        m_local_phen.v1(static_cast<std::size_t>(food.lx), static_cast<std::size_t>(food.ly)) = 1.0;
+        grid.v1(static_cast<std::size_t>(food.lx), static_cast<std::size_t>(food.ly)) = 1.0;
     }
     if (owns_cell_global(sim_config.pos_nest.x, sim_config.pos_nest.y)) {
         const LocalCellCoord nest = global_to_local(sim_config.pos_nest.x, sim_config.pos_nest.y);
-        m_local_phen.v2(static_cast<std::size_t>(nest.lx), static_cast<std::size_t>(nest.ly)) = 1.0;
+        grid.v2(static_cast<std::size_t>(nest.lx), static_cast<std::size_t>(nest.ly)) = 1.0;
     }
 }
 
@@ -558,6 +565,127 @@ void Mpi2SoaBackend::exchange_migrating_ants()
     append_received_ants(recv_from_down);
 }
 
+void Mpi2SoaBackend::sync_global_state_for_render(WorldState& world)
+{
+    if (!m_partition_ready || !m_local_ants_ready || !m_local_grid_ready) {
+        return;
+    }
+
+    const int mpi_size = std::max(1, m_size);
+    const bool root = mpi_runtime::is_root();
+
+    std::vector<MigrationAntPOD> local_ant_pack;
+    local_ant_pack.reserve(m_local_ants.size());
+    for (std::size_t i = 0; i < m_local_ants.size(); ++i) {
+        local_ant_pack.push_back(MigrationAntPOD{
+            static_cast<int>(m_local_ants.x[i]),
+            static_cast<int>(m_local_ants.y[i]),
+            static_cast<int>(m_local_ants.state[i]),
+            static_cast<std::uint64_t>(m_local_ants.seed[i])});
+    }
+
+    const int local_ant_count = static_cast<int>(local_ant_pack.size());
+    std::vector<int> ant_counts(root ? static_cast<std::size_t>(mpi_size) : 0u, 0);
+    MPI_Gather(&local_ant_count, 1, MPI_INT,
+               root ? ant_counts.data() : nullptr, 1, MPI_INT,
+               0, MPI_COMM_WORLD);
+
+    std::vector<int> ant_counts_bytes;
+    std::vector<int> ant_displs_bytes;
+    std::vector<MigrationAntPOD> gathered_ants;
+    if (root) {
+        ant_counts_bytes.resize(static_cast<std::size_t>(mpi_size), 0);
+        ant_displs_bytes.resize(static_cast<std::size_t>(mpi_size), 0);
+        int total_ants = 0;
+        for (int r = 0; r < mpi_size; ++r) {
+            ant_counts_bytes[static_cast<std::size_t>(r)] = ant_counts[static_cast<std::size_t>(r)] *
+                                                            static_cast<int>(sizeof(MigrationAntPOD));
+            ant_displs_bytes[static_cast<std::size_t>(r)] = total_ants * static_cast<int>(sizeof(MigrationAntPOD));
+            total_ants += ant_counts[static_cast<std::size_t>(r)];
+        }
+        gathered_ants.resize(static_cast<std::size_t>(total_ants));
+    }
+
+    MPI_Gatherv(local_ant_pack.empty() ? nullptr : local_ant_pack.data(),
+                local_ant_count * static_cast<int>(sizeof(MigrationAntPOD)),
+                MPI_BYTE,
+                root ? gathered_ants.data() : nullptr,
+                root ? ant_counts_bytes.data() : nullptr,
+                root ? ant_displs_bytes.data() : nullptr,
+                MPI_BYTE,
+                0, MPI_COMM_WORLD);
+
+    const std::size_t local_rows = m_local_phen.local_height();
+    const std::size_t w = m_global_w;
+    std::vector<double> local_v1(local_rows * w, 0.0);
+    std::vector<double> local_v2(local_rows * w, 0.0);
+    for (std::size_t ly = 1; ly <= local_rows; ++ly) {
+        const std::size_t row_offset = (ly - 1u) * w;
+        for (std::size_t gx = 0; gx < w; ++gx) {
+            local_v1[row_offset + gx] = m_local_phen.v1(gx + 1u, ly);
+            local_v2[row_offset + gx] = m_local_phen.v2(gx + 1u, ly);
+        }
+    }
+
+    const int local_cell_count = static_cast<int>(local_v1.size());
+    std::vector<int> cell_counts(root ? static_cast<std::size_t>(mpi_size) : 0u, 0);
+    MPI_Gather(&local_cell_count, 1, MPI_INT,
+               root ? cell_counts.data() : nullptr, 1, MPI_INT,
+               0, MPI_COMM_WORLD);
+
+    std::vector<int> cell_displs;
+    std::vector<double> gathered_v1;
+    std::vector<double> gathered_v2;
+    if (root) {
+        cell_displs.resize(static_cast<std::size_t>(mpi_size), 0);
+        int total_cells = 0;
+        for (int r = 0; r < mpi_size; ++r) {
+            cell_displs[static_cast<std::size_t>(r)] = total_cells;
+            total_cells += cell_counts[static_cast<std::size_t>(r)];
+        }
+        gathered_v1.resize(static_cast<std::size_t>(total_cells), -1.0);
+        gathered_v2.resize(static_cast<std::size_t>(total_cells), -1.0);
+    }
+
+    MPI_Gatherv(local_v1.empty() ? nullptr : local_v1.data(), local_cell_count, MPI_DOUBLE,
+                root ? gathered_v1.data() : nullptr,
+                root ? cell_counts.data() : nullptr,
+                root ? cell_displs.data() : nullptr,
+                MPI_DOUBLE,
+                0, MPI_COMM_WORLD);
+    MPI_Gatherv(local_v2.empty() ? nullptr : local_v2.data(), local_cell_count, MPI_DOUBLE,
+                root ? gathered_v2.data() : nullptr,
+                root ? cell_counts.data() : nullptr,
+                root ? cell_displs.data() : nullptr,
+                MPI_DOUBLE,
+                0, MPI_COMM_WORLD);
+
+    if (!root) {
+        return;
+    }
+
+    m_ants.x.resize(gathered_ants.size());
+    m_ants.y.resize(gathered_ants.size());
+    m_ants.state.resize(gathered_ants.size());
+    m_ants.seed.resize(gathered_ants.size());
+    for (std::size_t i = 0; i < gathered_ants.size(); ++i) {
+        m_ants.x[i] = static_cast<std::int32_t>(gathered_ants[i].x);
+        m_ants.y[i] = static_cast<std::int32_t>(gathered_ants[i].y);
+        m_ants.state[i] = static_cast<std::uint8_t>(gathered_ants[i].state);
+        m_ants.seed[i] = static_cast<std::uint32_t>(gathered_ants[i].seed);
+    }
+
+    std::size_t flat = 0u;
+    for (std::size_t gy = 0; gy < m_global_h; ++gy) {
+        for (std::size_t gx = 0; gx < m_global_w; ++gx) {
+            auto cell = world.phen(gx, gy);
+            cell[0] = gathered_v1[flat];
+            cell[1] = gathered_v2[flat];
+            ++flat;
+        }
+    }
+}
+
 void Mpi2SoaBackend::maybe_print_migration_debug()
 {
     if (!mpi2_debug_migration_enabled()) {
@@ -634,18 +762,42 @@ double Mpi2SoaBackend::phen_read_global(std::int32_t x, std::int32_t y, int chan
 
 bool Mpi2SoaBackend::mark_pheromone_global(std::int32_t x, std::int32_t y, int channel)
 {
-    assert(channel == 0 || channel == 1);
+    (void)channel;
     if (!owns_cell_global(x, y)) {
         return false;
     }
 
     const LocalCellCoord local = global_to_local(x, y);
-    if (channel == 0) {
-        double& cell = m_local_phen.v1(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
-        cell = std::max(cell, 1.0);
+
+    const double v1_left = std::max(phen_read_global(x - 1, y, 0), 0.0);
+    const double v1_right = std::max(phen_read_global(x + 1, y, 0), 0.0);
+    const double v1_up = std::max(phen_read_global(x, y - 1, 0), 0.0);
+    const double v1_down = std::max(phen_read_global(x, y + 1, 0), 0.0);
+    const double v2_left = std::max(phen_read_global(x - 1, y, 1), 0.0);
+    const double v2_right = std::max(phen_read_global(x + 1, y, 1), 0.0);
+    const double v2_up = std::max(phen_read_global(x, y - 1, 1), 0.0);
+    const double v2_down = std::max(phen_read_global(x, y + 1, 1), 0.0);
+
+    const double mark_v1 =
+        m_alpha * std::max({v1_left, v1_right, v1_up, v1_down}) +
+        (1.0 - m_alpha) * 0.25 * (v1_left + v1_right + v1_up + v1_down);
+    const double mark_v2 =
+        m_alpha * std::max({v2_left, v2_right, v2_up, v2_down}) +
+        (1.0 - m_alpha) * 0.25 * (v2_left + v2_right + v2_up + v2_down);
+
+    const std::size_t lx = static_cast<std::size_t>(local.lx);
+    const std::size_t ly = static_cast<std::size_t>(local.ly);
+    const std::size_t idx = ly * m_local_next_phen.stride() + lx;
+
+    double& cell_v1 = m_local_next_phen.v1(lx, ly);
+    double& cell_v2 = m_local_next_phen.v2(lx, ly);
+    if (m_mark_epoch[idx] != m_epoch) {
+        m_mark_epoch[idx] = m_epoch;
+        cell_v1 = mark_v1;
+        cell_v2 = mark_v2;
     } else {
-        double& cell = m_local_phen.v2(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
-        cell = std::max(cell, 1.0);
+        cell_v1 = std::max(cell_v1, mark_v1);
+        cell_v2 = std::max(cell_v2, mark_v2);
     }
     return true;
 }
