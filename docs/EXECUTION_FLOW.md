@@ -7,7 +7,7 @@ It covers all current execution modes:
 - `serial` (`aos` and `soa`)
 - `omp` (`soa`)
 - `mpi1` (`soa`)
-- `mpi2` (`soa`, benchmark/no-render only)
+- `mpi2` (`soa`; render allowed only with `np=1`)
 
 ## 2) Quick Start Commands
 
@@ -163,14 +163,14 @@ main()
 -> Allreduce(MAX) on V1 and V2 full arrays   # pheromone reconcile
 ```
 
-### E) `mpi2 + soa` (benchmark/no-render only)
+### E) `mpi2 + soa`
 
 ```text
 main()
 -> mpi_runtime::init()
--> enforce benchmark/no-render for mpi2      # exits or forces no-render
+-> if render and np>1: error                  # render allowed only in single-process mpi2
 -> make_backend() -> Mpi2SoaBackend
--> run_benchmark()                            # root-only METRIC output
+-> run_benchmark() or run_interactive()       # benchmark and interactive are both valid
 -> Mpi2SoaBackend::step()
 -> initialize 1D row partition if needed     # y0..y1 ownership per rank
 -> halo_exchange() for V1/V2                 # MPI_Sendrecv with up/down
@@ -231,8 +231,8 @@ results/<folder>/<exec>/<layout>/<timestamp>/...
 
 ## 10) Quick Troubleshooting
 
-- `exec=mpi2` without `--benchmark`: program exits by design.
-- `exec=mpi2` with render requested: render is forced OFF.
+- `exec=mpi2` with render and `np>1`: program exits with clear error.
+- `exec=mpi2` render works only for single process (`-np 1`).
 - `omp+aos`, `mpi1+aos`, `mpi2+aos`: rejected by backend factory.
 - If MPI command fails, verify `mpirun` and use same executable path as build output.
 - If timing output is duplicated in MPI, verify you are reading root output only.
