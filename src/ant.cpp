@@ -6,14 +6,14 @@
 double ant::m_eps = 0.;
 
 void ant::advance( pheronome& phen, const fractal_land& land, const position_t& pos_food, const position_t& pos_nest,
-                   std::size_t& cpteur_food ) 
+                   std::size_t& cpteur_food, TimingProfile& profile ) 
 {
     auto ant_choice = [this]() mutable { return rand_double( 0., 1., this->m_seed ); };
     auto dir_choice = [this]() mutable { return rand_int32( 1, 4, this->m_seed ); };
     double                                   consumed_time = 0.;
     // Tant que la fourmi peut encore bouger dans le pas de temps imparti
     while ( consumed_time < 1. ) {
-        std::uint64_t ant_step_start_ns = profile_now_ns();
+        std::uint64_t ant_step_start_ns = profile.start(TimingSection::k2);
         // Si la fourmi est chargée, elle suit les phéromones de deuxième type, sinon ceux du premier.
         int        ind_pher    = ( is_loaded( ) ? 1 : 0 );
         double     choix       = ant_choice( );
@@ -45,13 +45,13 @@ void ant::advance( pheronome& phen, const fractal_land& land, const position_t& 
                 new_pos_ant.y += 1;
         }
         consumed_time += land( new_pos_ant.x, new_pos_ant.y);
-        std::uint64_t before_mark_ns = profile_now_ns();
-        profile_add_k2( before_mark_ns - ant_step_start_ns );
+        profile.stop( TimingSection::k2, ant_step_start_ns );
 
+        std::uint64_t mark_start_ns = profile.start(TimingSection::k3);
         phen.mark_pheronome( new_pos_ant );
-        std::uint64_t after_mark_ns = profile_now_ns();
-        profile_add_k3( after_mark_ns - before_mark_ns );
+        profile.stop(TimingSection::k3, mark_start_ns);
 
+        std::uint64_t k2_tail_start_ns = profile.start(TimingSection::k2);
         m_position = new_pos_ant;
         if ( get_position( ) == pos_nest ) {
             if ( is_loaded( ) ) {
@@ -62,7 +62,6 @@ void ant::advance( pheronome& phen, const fractal_land& land, const position_t& 
         if ( get_position( ) == pos_food ) {
             set_loaded( );
         }
-        std::uint64_t ant_step_end_ns = profile_now_ns();
-        profile_add_k2( ant_step_end_ns - after_mark_ns );
+        profile.stop(TimingSection::k2, k2_tail_start_ns);
     }
 }

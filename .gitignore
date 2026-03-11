@@ -80,3 +80,6 @@ _minted*/
 
 ## Generated Outputs
 *.ps
+
+## Local Python virtual environments
+.venv-report/

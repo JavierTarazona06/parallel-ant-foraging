@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <utility>
 #include <vector>
 #include "basic_types.hpp"
@@ -18,6 +19,34 @@ class pheronome {
 public:
     using size_t      = unsigned long;
     using pheronome_t = std::array< double, 2 >;
+
+    struct cell_ref {
+        double* v1{nullptr};
+        double* v2{nullptr};
+
+        double& operator[](std::size_t idx)
+        {
+            assert(idx < 2);
+            return (idx == 0) ? *v1 : *v2;
+        }
+
+        const double& operator[](std::size_t idx) const
+        {
+            assert(idx < 2);
+            return (idx == 0) ? *v1 : *v2;
+        }
+    };
+
+    struct cell_const_ref {
+        const double* v1{nullptr};
+        const double* v2{nullptr};
+
+        const double& operator[](std::size_t idx) const
+        {
+            assert(idx < 2);
+            return (idx == 0) ? *v1 : *v2;
+        }
+    };
 
     /**
      * @brief Construit une carte initiale des phéronomes
@@ -33,41 +62,92 @@ public:
         : m_dim( dim ),
           m_stride( dim + 2 ),
           m_alpha(alpha), m_beta(beta),
-          m_map_of_pheronome( m_stride * m_stride, {{0., 0.}} ),
-          m_buffer_pheronome( ),
+          m_map_v1( m_stride * m_stride, 0.0 ),
+          m_map_v2( m_stride * m_stride, 0.0 ),
+          m_buffer_v1( m_stride * m_stride, 0.0 ),
+          m_buffer_v2( m_stride * m_stride, 0.0 ),
+          m_mark_epoch( m_stride * m_stride, 0u ),
+          m_epoch( 1u ),
           m_pos_nest( pos_nest ),
           m_pos_food( pos_food ) 
           {
-        m_map_of_pheronome[index(pos_food)][0] = 1.;
-        m_map_of_pheronome[index(pos_nest)][1] = 1.;
+        m_map_v1[index(pos_food)] = 1.;
+        m_map_v2[index(pos_nest)] = 1.;
         cl_update( );
-        m_buffer_pheronome = m_map_of_pheronome;
+        m_buffer_v1 = m_map_v1;
+        m_buffer_v2 = m_map_v2;
     }
     pheronome( const pheronome& ) = delete;
     pheronome( pheronome&& )      = delete;
     ~pheronome( )                 = default;
 
-    pheronome_t& operator( )( size_t i, size_t j ) {
-        return m_map_of_pheronome[( i + 1 ) * m_stride + ( j + 1 )];
+    cell_ref operator( )( size_t i, size_t j ) {
+        const size_t idx = flat_index(i, j);
+        return cell_ref{&m_map_v1[idx], &m_map_v2[idx]};
     }
 
-    const pheronome_t& operator( )( size_t i, size_t j ) const {
-        return m_map_of_pheronome[( i + 1 ) * m_stride + ( j + 1 )];
+    cell_const_ref operator( )( size_t i, size_t j ) const {
+        const size_t idx = flat_index(i, j);
+        return cell_const_ref{&m_map_v1[idx], &m_map_v2[idx]};
     }
 
-    pheronome_t& operator[] ( const position_t& pos ) {
-      return m_map_of_pheronome[index(pos)];
+    cell_ref operator[] ( const position_t& pos ) {
+      const size_t idx = index(pos);
+      return cell_ref{&m_map_v1[idx], &m_map_v2[idx]};
     }
 
-    const pheronome_t& operator[] ( const position_t& pos ) const {
-      return m_map_of_pheronome[index(pos)];
+    cell_const_ref operator[] ( const position_t& pos ) const {
+      const size_t idx = index(pos);
+      return cell_const_ref{&m_map_v1[idx], &m_map_v2[idx]};
+    }
+
+    // Contiguous channels for MPI reductions (V1 / V2).
+    std::vector<double>& v1_buffer() { return m_map_v1; }
+    const std::vector<double>& v1_buffer() const { return m_map_v1; }
+    std::vector<double>& v2_buffer() { return m_map_v2; }
+    const std::vector<double>& v2_buffer() const { return m_map_v2; }
+
+    double* v1_data() { return m_map_v1.data(); }
+    const double* v1_data() const { return m_map_v1.data(); }
+    std::size_t v1_size() const { return m_map_v1.size(); }
+
+    double* v2_data() { return m_map_v2.data(); }
+    const double* v2_data() const { return m_map_v2.data(); }
+    std::size_t v2_size() const { return m_map_v2.size(); }
+
+    std::size_t cell_count() const { return m_map_v1.size(); }
+
+    void set_openmp_evaporation_enabled(bool enabled)
+    {
+        m_use_openmp_evaporation = enabled;
     }
 
     void do_evaporation( ) {
+        if (m_use_openmp_evaporation) {
+#ifdef _OPENMP
+            #pragma omp parallel for collapse(2) schedule(static)
+            for ( std::size_t i = 1; i <= m_dim; ++i )
+                for ( std::size_t j = 1; j <= m_dim; ++j ) {
+                    const std::size_t idx = i * m_stride + j;
+                    m_buffer_v1[idx] *= m_beta;
+                    m_buffer_v2[idx] *= m_beta;
+                }
+#else
+            for ( std::size_t i = 1; i <= m_dim; ++i )
+                for ( std::size_t j = 1; j <= m_dim; ++j ) {
+                    const std::size_t idx = i * m_stride + j;
+                    m_buffer_v1[idx] *= m_beta;
+                    m_buffer_v2[idx] *= m_beta;
+                }
+#endif
+            return;
+        }
+
         for ( std::size_t i = 1; i <= m_dim; ++i )
             for ( std::size_t j = 1; j <= m_dim; ++j ) {
-                m_buffer_pheronome[i * m_stride + j][0] *= m_beta;
-                m_buffer_pheronome[i * m_stride + j][1] *= m_beta;
+                const std::size_t idx = i * m_stride + j;
+                m_buffer_v1[idx] *= m_beta;
+                m_buffer_v2[idx] *= m_beta;
             }
     }
 
@@ -79,24 +159,33 @@ public:
         assert( i < m_dim );
         assert( j < m_dim );
         pheronome&         phen        = *this;
-        const pheronome_t& left_cell   = phen( i - 1, j );
-        const pheronome_t& right_cell  = phen( i + 1, j );
-        const pheronome_t& upper_cell  = phen( i, j - 1 );
-        const pheronome_t& bottom_cell = phen( i, j + 1 );
-        double             v1_left     = std::max( left_cell[0], 0. );
-        double             v2_left     = std::max( left_cell[1], 0. );
-        double             v1_right    = std::max( right_cell[0], 0. );
-        double             v2_right    = std::max( right_cell[1], 0. );
-        double             v1_upper    = std::max( upper_cell[0], 0. );
-        double             v2_upper    = std::max( upper_cell[1], 0. );
-        double             v1_bottom   = std::max( bottom_cell[0], 0. );
-        double             v2_bottom   = std::max( bottom_cell[1], 0. );
-        m_buffer_pheronome[( i + 1 ) * m_stride + ( j + 1 )][0] =
+        double             v1_left     = std::max( phen( i - 1, j )[0], 0. );
+        double             v2_left     = std::max( phen( i - 1, j )[1], 0. );
+        double             v1_right    = std::max( phen( i + 1, j )[0], 0. );
+        double             v2_right    = std::max( phen( i + 1, j )[1], 0. );
+        double             v1_upper    = std::max( phen( i, j - 1 )[0], 0. );
+        double             v2_upper    = std::max( phen( i, j - 1 )[1], 0. );
+        double             v1_bottom   = std::max( phen( i, j + 1 )[0], 0. );
+        double             v2_bottom   = std::max( phen( i, j + 1 )[1], 0. );
+        const std::size_t idx = flat_index(i, j);
+        const double mark_v1 =
             m_alpha * std::max( {v1_left, v1_right, v1_upper, v1_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v1_left + v1_right + v1_upper + v1_bottom );
-        m_buffer_pheronome[( i + 1 ) * m_stride + ( j + 1 )][1] =
+        const double mark_v2 =
             m_alpha * std::max( {v2_left, v2_right, v2_upper, v2_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v2_left + v2_right + v2_upper + v2_bottom );
+
+        // Idempotent mark in the current iteration:
+        // first visit sets the mark value, repeated visits use MAX so update order
+        // does not matter (future OpenMP/MPI MAX-reduction compatibility).
+        if (m_mark_epoch[idx] != m_epoch) {
+            m_mark_epoch[idx] = m_epoch;
+            m_buffer_v1[idx] = mark_v1;
+            m_buffer_v2[idx] = mark_v2;
+        } else {
+            m_buffer_v1[idx] = std::max(m_buffer_v1[idx], mark_v1);
+            m_buffer_v2[idx] = std::max(m_buffer_v2[idx], mark_v2);
+        }
     }
 
     void mark_pheronome( const position_t& pos ) {
@@ -104,13 +193,20 @@ public:
     }
 
     void update( ) {
-        m_map_of_pheronome.swap( m_buffer_pheronome );
+        m_map_v1.swap( m_buffer_v1 );
+        m_map_v2.swap( m_buffer_v2 );
         cl_update( );
-        m_map_of_pheronome[( m_pos_food.x + 1 ) * m_stride + m_pos_food.y + 1][0] = 1;
-        m_map_of_pheronome[( m_pos_nest.x + 1 ) * m_stride + m_pos_nest.y + 1][1] = 1;
+        m_map_v1[( m_pos_food.x + 1 ) * m_stride + m_pos_food.y + 1] = 1;
+        m_map_v2[( m_pos_nest.x + 1 ) * m_stride + m_pos_nest.y + 1] = 1;
+        advance_epoch();
     }
 
 private:
+    size_t flat_index( size_t i, size_t j ) const
+    {
+      return ( i + 1 ) * m_stride + ( j + 1 );
+    }
+
     size_t index( const position_t& pos ) const
     {
       return (pos.x+1)*m_stride + pos.y + 1;
@@ -124,16 +220,35 @@ private:
     void cl_update( ) {
         // On mets tous les bords à -1 pour les marquer comme indésirables :
         for ( unsigned long j = 0; j < m_stride; ++j ) {
-            m_map_of_pheronome[j]                            = {{-1., -1.}};
-            m_map_of_pheronome[j + m_stride * ( m_dim + 1 )] = {{-1., -1.}};
-            m_map_of_pheronome[j * m_stride]                 = {{-1., -1.}};
-            m_map_of_pheronome[j * m_stride + m_dim + 1]     = {{-1., -1.}};
+            m_map_v1[j]                            = -1.;
+            m_map_v2[j]                            = -1.;
+            m_map_v1[j + m_stride * ( m_dim + 1 )] = -1.;
+            m_map_v2[j + m_stride * ( m_dim + 1 )] = -1.;
+            m_map_v1[j * m_stride]                 = -1.;
+            m_map_v2[j * m_stride]                 = -1.;
+            m_map_v1[j * m_stride + m_dim + 1]     = -1.;
+            m_map_v2[j * m_stride + m_dim + 1]     = -1.;
         }
     }
+
+    void advance_epoch()
+    {
+        if (m_epoch == std::numeric_limits<std::uint32_t>::max()) {
+            std::fill(m_mark_epoch.begin(), m_mark_epoch.end(), 0u);
+            m_epoch = 1u;
+        } else {
+            ++m_epoch;
+        }
+    }
+
     unsigned long              m_dim, m_stride;
     double                     m_alpha, m_beta;
-    std::vector< pheronome_t > m_map_of_pheronome, m_buffer_pheronome;
+    std::vector<double> m_map_v1, m_map_v2;
+    std::vector<double> m_buffer_v1, m_buffer_v2;
+    std::vector<std::uint32_t> m_mark_epoch;
+    std::uint32_t m_epoch;
     position_t m_pos_nest, m_pos_food;
+    bool m_use_openmp_evaporation{false};
 };
 
 #endif

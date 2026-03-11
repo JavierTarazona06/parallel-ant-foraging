@@ -1,0 +1,2 @@
+thread,reps,mean_k0_ms_iter,std_k0_ms_iter,mean_k4_ms_iter,std_k4_ms_iter,speedup_vs_thread1
+1,7,8.209505,0.576745,0.536595,0.061522,1.000000

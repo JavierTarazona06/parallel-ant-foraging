@@ -7,10 +7,19 @@
 #include "fractal_land.hpp"
 #include "pheronome.hpp"
 
+class TimingProfile;
+
 struct IterTimingNs {
     std::uint64_t k1_ns{0};
+    std::uint64_t k2_ns{0};
+    std::uint64_t k3_ns{0};
     std::uint64_t k4_ns{0};
     std::uint64_t k5_ns{0};
+    std::uint64_t k_mpi_sync_ns{0};
+    std::uint64_t k_mpi_halo_ns{0};
+    std::uint64_t k_mpi_migrate_ns{0};
+    std::uint64_t touched_raw_count{0};
+    std::uint64_t touched_unique_count{0};
 };
 
 struct AntsSoA {
@@ -42,5 +51,21 @@ void advance_time_soa(const fractal_land& land, pheronome& phen,
                       std::int32_t nest_x, std::int32_t nest_y,
                       std::int32_t food_x, std::int32_t food_y,
                       AntsSoA& ants, double eps, std::size_t& food_counter,
+                      TimingProfile& profile,
                       IterTimingNs* iter_timing = nullptr);
 
+void advance_time_soa_range(const fractal_land& land, pheronome& phen,
+                            std::int32_t nest_x, std::int32_t nest_y,
+                            std::int32_t food_x, std::int32_t food_y,
+                            AntsSoA& ants, std::size_t begin, std::size_t end,
+                            double eps, std::size_t& food_counter,
+                            TimingProfile& profile,
+                            IterTimingNs* iter_timing = nullptr);
+
+void advance_ants_soa_range(const fractal_land& land, pheronome& phen,
+                            std::int32_t nest_x, std::int32_t nest_y,
+                            std::int32_t food_x, std::int32_t food_y,
+                            AntsSoA& ants, std::size_t begin, std::size_t end,
+                            double eps, std::size_t& food_counter,
+                            TimingProfile& profile,
+                            IterTimingNs* iter_timing = nullptr);

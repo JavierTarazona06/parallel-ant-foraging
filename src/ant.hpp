@@ -6,6 +6,8 @@
 # include "fractal_land.hpp"
 # include "basic_types.hpp"
 
+class TimingProfile;
+
 class ant
 {
 public:
@@ -27,7 +29,8 @@ public:
     static void set_exploration_coef(double eps) { m_eps = eps; }
 
     void advance( pheronome& phen, const fractal_land& land,
-                  const position_t& pos_food, const position_t& pos_nest, std::size_t& cpteur_food );
+                  const position_t& pos_food, const position_t& pos_nest, std::size_t& cpteur_food,
+                  TimingProfile& profile );
 
 private:
     static double m_eps; // Coefficient d'exploration commun à toutes les fourmis.
