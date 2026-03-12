@@ -94,13 +94,37 @@ où \(K0_1\) est la valeur à \(np=1\).
 \toprule
 \textbf{np} & \textbf{K0 moyen} & \textbf{écart-type} & \textbf{\(\Delta\)} & \textbf{\(\Delta_{\%}\)} & \textbf{Speedup \(S(p)\)} & \textbf{Efficacité \(E(p)\)} \\
 \midrule
-1 & 16.328744 & 0.287091 & +0.000000 & +0.000 & 1.000000 & 1.000000 \\
-2 & 9.678549 & 0.032995 & -6.650195 & -40.727 & 1.687107 & 0.843553 \\
-4 & 5.755498 & 0.044726 & -10.573246 & -64.752 & 2.837069 & 0.709267 \\
-8 & 3.009207 & 0.042521 & -13.319537 & -81.571 & 5.426261 & 0.678283 \\
+1 & 15.146929 & 0.634749 & +0.000000 & +0.000 & 1.000000 & 1.000000 \\
+2 & 8.186620 & 0.534566 & -6.960309 & -45.952 & 1.850205 & 0.925103 \\
+4 & 4.656974 & 0.489330 & -10.489955 & -69.255 & 3.252526 & 0.813131 \\
+8 & 6.296121 & 1.126444 & -8.850808 & -58.433 & 2.405756 & 0.300719 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\[
+S_{\text{th,idéal}}(p)=p
+\]
+
+\begin{table}[H]
+\centering
+\caption{Comparaison speedup mesuré vs speedup théorique (MPI2 SoA)}
+\label{tab:mpi2-speedup-theory}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{np} & \textbf{\(S_{\text{mesuré}}(p)\)} & \textbf{\(S_{\text{th,idéal}}(p)\)} & \textbf{\(S_{\text{th,Amdahl}}(p)\)} \\
+\midrule
+1 & 1.000000 & 1.000000 & 1.000000 \\
+2 & 1.850205 & 2.000000 & 1.501283 \\
+4 & 3.252526 & 4.000000 & 2.003424 \\
+8 & 2.405756 & 8.000000 & 2.405756 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La comparaison montre que MPI2 reste nettement en-dessous du modèle idéal linéaire,
+mais suit une tendance compatible avec une borne d'Amdahl simple (calée sur \(np=8\)).
+Cela indique un gain de parallélisme réel, limité à haut \(np\) par les surcoûts de communication.
 
 \subsubsection{Définition et lecture de l'efficacité}
 
@@ -116,7 +140,8 @@ E(p)=\frac{S(p)}{p}
 Une efficacité proche de 1 signifie que les processus supplémentaires sont bien
 utilisés. Quand \(E(p)\) baisse, cela indique qu'une partie du gain est absorbée
 par les overheads (communication, synchronisation, déséquilibre éventuel).
-Ici, la baisse reste modérée entre 2, 4 et 8 processus.
+Dans cette campagne, l'efficacité reste élevée à \(np=2\) et \(np=4\), puis chute
+nettement à \(np=8\), ce qui indique un changement de régime dominé par la communication.
 
 \begin{table}[H]
 \centering
@@ -126,10 +151,10 @@ Ici, la baisse reste modérée entre 2, 4 et 8 processus.
 \toprule
 \textbf{np} & \textbf{K1} & \textbf{K4} & \textbf{K5} & \(\mathbf{K_{\text{MPI\_sync}}}\) & \(\mathbf{K_{\text{MPI\_halo}}+K_{\text{MPI\_migrate}}}\) \\
 \midrule
-1 & 4.015616 & 2.006964 & 10.290746 & 0.007818 & 0.002027 \\
-2 & 2.063510 & 1.093025 & 5.741279 & 1.100832 & 0.089955 \\
-4 & 1.261674 & 0.593487 & 3.241676 & 0.959701 & 0.138488 \\
-8 & 0.679745 & 0.322101 & 1.726835 & 0.649644 & 0.094833 \\
+1 & 12.306339 & 1.623108 & 0.031015 & 0.010476 & 0.004256 \\
+2 & 5.985056 & 0.876899 & 0.016374 & 0.862798 & 0.286338 \\
+4 & 2.767057 & 0.482712 & 0.012416 & 1.092852 & 0.516112 \\
+8 & 1.444341 & 0.323934 & 0.018483 & 2.627381 & 2.602558 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -167,57 +192,63 @@ Ici, la baisse reste modérée entre 2, 4 et 8 processus.
 \subsubsection{Scalabilité globale}
 
 Les résultats montrent une amélioration nette de \(K0\) quand \(np\) augmente
-(Table~\ref{tab:mpi2-speedup}) :
+(Table~\ref{tab:mpi2-speedup}) jusqu'à \(np=4\) :
 \[
-S(2)=1.687,\quad S(4)=2.837,\quad S(8)=5.426
+S(2)=1.850,\quad S(4)=3.253,\quad S(8)=2.406
 \]
-Le speedup reste sous la droite idéale, mais la tendance est clairement
-scalable pour cette campagne.
+Le speedup reste sous la droite idéale, et on observe une régression à \(np=8\)
+par rapport à \(np=4\), signe d'un coût de communication dominant à haut \(np\).
+
+La Table~\ref{tab:mpi2-speedup-theory} permet de lire directement cet écart:
+à \(np=4\), MPI2 reste relativement proche de l'idéal (\(3.25\) vs \(4.00\)),
+alors qu'à \(np=8\), la distance devient forte (\(2.41\) vs \(8.00\)).
 
 \subsubsection{Lecture Amdahl}
 
-Avec \(S(8)=5.426\), une estimation simple donne :
+Avec \(S(8)=2.406\), une estimation simple donne :
 \[
-f \approx \frac{8/S(8)-1}{7}\approx 0.068,\qquad
-S_{\max}\approx \frac{1}{f}\approx 14.76
+f \approx \frac{8/S(8)-1}{7}\approx 0.332,\qquad
+S_{\max}\approx \frac{1}{f}\approx 3.01
 \]
-Ce calcul indique une fraction effectivement séquentielle faible dans cette version MPI2.
+Cette lecture est cohérente avec les mesures: à \(np=8\), la part non-calcul
+(synchronisation + échanges) devient majoritaire.
 
 \subsubsection{Bottlenecks observés}
 
 La Table~\ref{tab:mpi2-breakdown} montre que :
 \begin{itemize}[leftmargin=*]
-  \item \(K5\) reste la composante principale du noyau, même si son coût baisse avec \(np\),
-  \item \(K_{\text{MPI\_sync}}\) augmente en valeur absolue entre \(np=1\) et \(np=2\), mais
-  reste contenu ensuite,
-  \item les coûts halo+migration sont présents mais restent modestes face à \(K5\).
+  \item \(K1\) diminue bien avec \(np\) (travail fourmis distribué),
+  \item \(K_{\text{MPI\_sync}}\) et \(K_{\text{MPI\_halo}}+K_{\text{MPI\_migrate}}\) augmentent
+  nettement à partir de \(np=4\),
+  \item à \(np=8\), les coûts de communication cumulés (\(\approx 5.23\) ms/it) deviennent
+  du même ordre que \(K0\), ce qui limite fortement la scalabilité.
 \end{itemize}
 
-En pratique, MPI2 évite le coût des réductions globales de cartes complètes (cas MPI1) et
-remplace ce coût par des communications locales de voisinage, plus favorables à la scalabilité.
+En pratique, MPI2 évite bien les réductions globales de cartes complètes (cas MPI1), mais
+le coût des échanges locaux (halo + migration) devient dominant quand le nombre de processus
+augmente trop pour cette taille de problème.
 
 \subsubsection{Lecture de l'efficacité}
 
-La Figure~\ref{fig:mpi2-efficiency} confirme une baisse classique de l'efficacité avec \(np\),
-mais la baisse reste progressive :
+La Figure~\ref{fig:mpi2-efficiency} confirme la baisse de l'efficacité quand \(np\) augmente :
 \[
-E(2)=0.844,\quad E(4)=0.709,\quad E(8)=0.678
+E(2)=0.925,\quad E(4)=0.813,\quad E(8)=0.301
 \]
-Cette évolution est cohérente avec un compromis attendu en MPI : le calcul local se répartit
-bien, tandis que le poids relatif des communications augmente quand on ajoute des processus.
+L'efficacité reste bonne jusqu'à \(np=4\), puis chute à \(np=8\), ce qui est cohérent
+avec une surcharge de communication et de synchronisation.
 
 \subsection{Interprétation}
 
 Les Tables~\ref{tab:mpi2-speedup} et \ref{tab:mpi2-breakdown}, ainsi que les Figures
 ~\ref{fig:mpi2-speedup}, \ref{fig:mpi2-efficiency}, \ref{fig:mpi2-k0} et \ref{fig:mpi2-breakdown},
 montrent que la ``deuxième façon'' atteint l'objectif principal du point MPI :
-améliorer la scalabilité en réduisant la communication globale.
+réduire la communication globale par rapport à MPI1, avec un gain net jusqu'à \(np=4\).
 
 Le point important est que cette amélioration ne vient pas d'une optimisation locale isolée,
 mais d'un changement de stratégie de communication :
 au lieu de synchroniser des cartes complètes par \texttt{Allreduce(MAX)} à chaque itération,
 on échange principalement des informations de bord (halo) et des fourmis migrantes entre voisins.
 
-Dans ce cadre, les résultats obtenus sont cohérents avec la théorie du cours sur la granularité :
-en diminuant le volume de communication globale par itération, on obtient un meilleur ratio
-calcul/communication et donc un speedup plus élevé.
+Dans cette nouvelle campagne, on voit cependant la limite de granularité :
+pour \(np=8\), le coût des échanges locaux devient trop élevé par rapport au calcul local,
+ce qui fait baisser speedup et efficacité.

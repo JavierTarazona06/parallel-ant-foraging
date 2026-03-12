@@ -157,6 +157,33 @@ S(4)=\frac{8.684056}{4.612187}=1.882850308 \approx 1.882850
 S(8)=\frac{8.684056}{3.564663}=2.436151334 \approx 2.436151
 \]
 
+\[
+S_{\text{th,idéal}}(p)=p
+\]
+
+\begin{table}[H]
+\centering
+\caption{Comparaison speedup mesuré vs speedup théorique (OpenMP SoA)}
+\label{tab:omp-speedup-theory}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{Threads} & \textbf{\(S_{\text{mesuré}}(p)\)} & \textbf{\(S_{\text{th,idéal}}(p)\)} & \textbf{\(S_{\text{th,Amdahl}}(p)\)} \\
+\midrule
+1 & 1.000000 & 1.000000 & 1.000000 \\
+2 & 1.567677 & 2.000000 & 1.507992 \\
+4 & 1.882850 & 4.000000 & 2.021426 \\
+8 & 2.436151 & 8.000000 & 2.436151 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Cette comparaison montre deux lectures complémentaires:
+\begin{itemize}[leftmargin=*]
+  \item le modèle idéal \(S(p)=p\) reste une borne haute très optimiste;
+  \item la borne d'Amdahl (calée ici sur \(S(8)\)) reproduit mieux la tendance mesurée,
+  ce qui confirme une part non parallélisable non négligeable.
+\end{itemize}
+
 \subsubsection{Définition et lecture de l'efficacité}
 
 L'efficacité est définie par :
@@ -269,6 +296,14 @@ S(8)=2.4362 \quad (\text{vs idéal } 8.0)
   f \approx \frac{8/S(8)-1}{7}\approx 0.33,\qquad S_{\max}\approx \frac{1}{f}\approx 3.06.
   \]
   Le plafonnement observé autour de \(2.4\) est cohérent avec cette borne.
+\end{itemize}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Comparaison explicite au théorique.}
+  La Table~\ref{tab:omp-speedup-theory} confirme que le speedup mesuré s'écarte fortement du
+  modèle idéal (à 8 threads: \(2.44\) vs \(8.00\)), alors qu'il reste proche d'une lecture
+  Amdahl calibrée sur la campagne. Cela valide l'idée d'un gain réel mais borné par les coûts
+  mémoire et les parties séquentielles résiduelles.
 \end{itemize}
 
 \begin{itemize}[leftmargin=*]
