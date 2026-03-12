@@ -154,6 +154,30 @@ où \(K0_1\) désigne la valeur mesurée avec 1 processus.
 \end{tabular}
 \end{table}
 
+\[
+S_{\text{th,idéal}}(p)=p
+\]
+
+\begin{table}[H]
+\centering
+\caption{Comparaison speedup mesuré vs speedup théorique idéal (MPI1 SoA, \(K=1\))}
+\label{tab:mpi1-speedup-theory-k1}
+\begin{tabular}{@{}rrrr@{}}
+\toprule
+\textbf{np} & \textbf{\(S_{\text{mesuré}}(p)\)} & \textbf{\(S_{\text{th,idéal}}(p)\)} & \textbf{\(S_{\text{mesuré}}/S_{\text{th,idéal}}\)} \\
+\midrule
+1 & 1.000000 & 1.000000 & 1.000000 \\
+2 & 1.128881 & 2.000000 & 0.564441 \\
+4 & 0.690786 & 4.000000 & 0.172696 \\
+8 & 0.345856 & 8.000000 & 0.043232 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La table met en évidence l'écart au modèle idéal: à \(np=8\), MPI1 n'atteint que
+\(4.3\%\) du speedup linéaire théorique. Cette lecture est cohérente avec la domination
+de \(K_{\text{MPI\_sync}}\) observée dans la décomposition des kernels.
+
 \begin{table}[H]
 \centering
 \caption{Décomposition du noyau MPI1 SoA (\(K=1\))}
@@ -250,6 +274,10 @@ Avec la baseline \(K=1\), on observe :
   \item un petit gain à \(np=2\) (\(S(2)=1.13\)) ;
   \item une dégradation nette ensuite (\(S(4)=0.69\), \(S(8)=0.35\)).
 \end{itemize}
+
+La Table~\ref{tab:mpi1-speedup-theory-k1} confirme que l'écart au speedup idéal se creuse
+très rapidement avec \(np\): le comportement passe d'un gain modeste à \(np=2\) à une
+régression marquée dès \(np=4\), ce qui est typique d'un régime dominé par la communication.
 
 \subsubsection{Lecture ``granularité'' et coût de communication}
 
