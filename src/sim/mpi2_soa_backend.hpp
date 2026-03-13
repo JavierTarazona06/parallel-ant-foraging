@@ -10,6 +10,7 @@
 class Mpi2SoaBackend final : public Backend
 {
 public:
+    // Wrap the domain-decomposed MPI2 strategy behind the shared backend interface.
     explicit Mpi2SoaBackend(AntsSoA& ants);
 
     const char* name() const override;
@@ -21,6 +22,7 @@ public:
 
 private:
     struct LocalAntsSoA {
+        // Store only the ants currently owned by this MPI2 rank.
         std::vector<std::int32_t> x;
         std::vector<std::int32_t> y;
         std::vector<std::uint8_t> state;
@@ -59,11 +61,13 @@ private:
     };
 
     struct LocalCellCoord {
+        // Address one cell inside the local subgrid including the halo offset.
         std::int32_t lx{0};
         std::int32_t ly{0};
     };
 
     struct MigrationAntPOD {
+        // Pack the minimum ant state needed to migrate it to a neighbor rank.
         int x{0};
         int y{0};
         int state{0};

@@ -8,11 +8,13 @@ enum class AntLayout { aos, soa };
 enum class ExecModel { serial, omp, mpi1, mpi2 };
 enum class InitMode { uniform, nest };
 
+// Convert enum values back to CLI-friendly text for logs and METRIC headers.
 const char* layout_to_text(AntLayout layout);
 const char* exec_model_to_text(ExecModel model);
 const char* init_mode_to_text(InitMode mode);
 
 struct RunConfig {
+    // Hold execution-mode and benchmark-loop settings parsed from the CLI.
     bool benchmark{false};
     std::size_t iterations{1200};
     std::size_t warmup{200};
@@ -24,6 +26,7 @@ struct RunConfig {
 };
 
 struct SimConfig {
+    // Hold model parameters that affect ants, pheromones, and initialization.
     std::size_t ants{5000};
     std::size_t seed{2026};
     double alpha{0.7};
@@ -35,9 +38,12 @@ struct SimConfig {
 };
 
 struct ParsedConfig {
+    // Return both config layers together after CLI parsing succeeds.
     RunConfig run;
     SimConfig sim;
 };
 
+// Print the supported command-line syntax for the executable.
 void print_usage(const char* exe_name);
+// Parse CLI arguments into validated run and simulation configs.
 std::optional<ParsedConfig> parse_args(int nargs, char* argv[]);

@@ -5,6 +5,7 @@
 class OmpSoaBackend final : public Backend
 {
 public:
+    // Wrap the OpenMP SoA kernel behind the shared backend interface.
     explicit OmpSoaBackend(AntsSoA& ants);
 
     const char* name() const override;

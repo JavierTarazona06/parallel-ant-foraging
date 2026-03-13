@@ -1,11 +1,10 @@
 # include "fractal_land.hpp"
 # include "rand_generator.hpp"
 
-void 
-fractal_land::compute_subgrid( int log_subgrid_dim, int iB, int jB, double deviation,
-                               std::size_t seed )
+void fractal_land::compute_subgrid( int log_subgrid_dim, int iB, int jB, double deviation,
+                                    std::size_t seed )
 {
-    // Génère des réels pseudo-aléatoires compris dans [-deviation;+deviation]
+    // Generate bounded pseudo-random offsets to refine one fractal subgrid.
     RandomGenerator gen( seed, -deviation, deviation );
 
     fractal_land& cur_land = *this;
@@ -26,21 +25,20 @@ fractal_land::compute_subgrid( int log_subgrid_dim, int iB, int jB, double devia
 fractal_land::fractal_land( const dim_t& ln2_dim, unsigned long nbSeeds, double deviation, int seed ) :
     m_dimensions(0), m_altitude()
 {
-    // dim_ss_grid = 2^{ln2_dim}
+    // Compute the initial coarse-grid size from the requested log2 dimension.
     unsigned long dim_ss_grid = 1UL<<(ln2_dim);
     m_dimensions = nbSeeds*dim_ss_grid+1;
     container(m_dimensions*m_dimensions).swap(m_altitude);
 
-    // Seed the engine with an unsigned int
+    // Seed the terrain generator once so the same seed rebuilds the same landscape.
     RandomGenerator gen(seed, 0., dim_ss_grid*deviation);
-    // Génère des réels pseudo-aléatoires compris dans [-deviation;+deviation]
 
     fractal_land& cur_land = *this;
-    // Calcul des points initiaux :
+    // Initialize the coarse grid corners before recursive refinement begins.
     for ( dim_t i = 0; i < m_dimensions; i += dim_ss_grid )
         for ( dim_t j = 0; j < m_dimensions; j += dim_ss_grid )
             cur_land(i,j) = gen(i,j);
-    // Puis on itère pour calculer le paysage fractal :
+    // Recursively refine each subgrid until the target terrain resolution is reached.
     dim_t ldim = ln2_dim;
     while (ldim > 1)
     {

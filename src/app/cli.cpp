@@ -7,11 +7,13 @@
 
 const char* layout_to_text(AntLayout layout)
 {
+    // Convert the layout enum into the text printed in logs and METRIC headers.
     return (layout == AntLayout::soa) ? "soa" : "aos";
 }
 
 const char* exec_model_to_text(ExecModel model)
 {
+    // Convert the execution model enum into the text printed in logs and METRIC headers.
     switch (model) {
     case ExecModel::serial:
         return "serial";
@@ -27,11 +29,13 @@ const char* exec_model_to_text(ExecModel model)
 
 const char* init_mode_to_text(InitMode mode)
 {
+    // Convert the initialization mode enum into the text printed in logs and METRIC headers.
     return (mode == InitMode::nest) ? "nest" : "uniform";
 }
 
 void print_usage(const char* exe_name)
 {
+    // Print the full command-line syntax accepted by the executable.
     std::cout << "Usage: " << exe_name
               << " [--benchmark] [--iterations N] [--warmup N] [--no-render] [--layout <aos|soa>]"
               << " [--exec <serial|omp|mpi1|mpi2>]"
@@ -42,6 +46,7 @@ void print_usage(const char* exe_name)
 
 namespace {
 
+// Parse an unsigned integer option shared by several CLI flags.
 bool parse_size_value(const char* text, std::size_t& value_out)
 {
     if (text == nullptr || *text == '\0') {
@@ -57,6 +62,7 @@ bool parse_size_value(const char* text, std::size_t& value_out)
     return true;
 }
 
+// Parse an unsigned integer option that must be strictly positive.
 bool parse_positive_size_value(const char* text, std::size_t& value_out)
 {
     if (!parse_size_value(text, value_out)) {
@@ -65,6 +71,7 @@ bool parse_positive_size_value(const char* text, std::size_t& value_out)
     return value_out > 0;
 }
 
+// Parse the layout selector used to choose AoS or SoA.
 bool parse_layout_value(const std::string& text, AntLayout& layout_out)
 {
     if (text == "aos") {
@@ -78,6 +85,7 @@ bool parse_layout_value(const std::string& text, AntLayout& layout_out)
     return false;
 }
 
+// Parse the execution model selector used to choose serial, OpenMP, or MPI.
 bool parse_exec_model_value(const std::string& text, ExecModel& model_out)
 {
     if (text == "serial") {
@@ -99,6 +107,7 @@ bool parse_exec_model_value(const std::string& text, ExecModel& model_out)
     return false;
 }
 
+// Parse the ant initialization policy used at startup.
 bool parse_init_mode_value(const std::string& text, InitMode& mode_out)
 {
     if (text == "uniform") {
@@ -112,6 +121,7 @@ bool parse_init_mode_value(const std::string& text, InitMode& mode_out)
     return false;
 }
 
+// Parse a floating-point argument before applying additional semantic checks.
 bool parse_double_value(const char* text, double& value_out)
 {
     if (text == nullptr || *text == '\0') {
@@ -127,6 +137,7 @@ bool parse_double_value(const char* text, double& value_out)
     return true;
 }
 
+// Parse a floating-point argument that must stay in the probability range [0, 1].
 bool parse_probability_value(const char* text, double& value_out)
 {
     if (!parse_double_value(text, value_out)) {
@@ -140,6 +151,7 @@ bool parse_probability_value(const char* text, double& value_out)
 std::optional<ParsedConfig> parse_args(int nargs, char* argv[])
 {
     ParsedConfig parsed{};
+    // Walk the argv list once and fill both run and simulation config structs.
     for (int i = 1; i < nargs; ++i) {
         std::string arg = argv[i];
         if (arg == "--help" || arg == "-h") {
@@ -316,6 +328,7 @@ std::optional<ParsedConfig> parse_args(int nargs, char* argv[])
         return std::nullopt;
     }
 
+    // Apply cross-flag validation once all CLI arguments have been parsed.
     if (parsed.run.benchmark && parsed.run.warmup >= parsed.run.iterations) {
         std::cerr << "Warmup must be strictly lower than iterations\n";
         return std::nullopt;

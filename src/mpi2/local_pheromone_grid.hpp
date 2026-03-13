@@ -8,6 +8,7 @@ class LocalPheromoneGrid
 public:
     using value_type = double;
 
+    // Store one local pheromone subgrid with a one-cell halo on every side.
     LocalPheromoneGrid() = default;
     LocalPheromoneGrid(std::size_t global_w, std::size_t local_h, value_type halo_value = -1.0);
 
@@ -24,6 +25,7 @@ public:
     value_type& v2(std::size_t lx, std::size_t ly);
     const value_type& v2(std::size_t lx, std::size_t ly) const;
 
+    // Expose contiguous row pointers for halo exchange with neighboring ranks.
     value_type* v1_row_ptr(std::size_t ly);
     const value_type* v1_row_ptr(std::size_t ly) const;
 
@@ -49,4 +51,3 @@ private:
     std::vector<value_type> m_v1;
     std::vector<value_type> m_v2;
 };
-

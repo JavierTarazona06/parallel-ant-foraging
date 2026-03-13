@@ -14,6 +14,7 @@ class pheronome;
 class TimingProfile;
 
 struct WorldState {
+    // Bundle the mutable world references passed into every backend step.
     const fractal_land& land;
     pheronome& phen;
     std::size_t& food_quantity;
@@ -24,6 +25,7 @@ struct WorldState {
 class Backend
 {
 public:
+    // Present a uniform step/render interface for serial, OpenMP, and MPI backends.
     virtual ~Backend() = default;
     virtual const char* name() const = 0;
     virtual void step(WorldState& world, const SimConfig& sim_config) = 0;
@@ -33,6 +35,7 @@ public:
                                                       const position_t& pos_food) const = 0;
 };
 
+// Build the backend selected by the CLI execution model and layout.
 std::unique_ptr<Backend> make_backend(const RunConfig& run_config,
                                       const SimConfig& sim_config,
                                       const WorldState& world_state,

@@ -5,6 +5,7 @@
 class Mpi1SoaBackend final : public Backend
 {
 public:
+    // Wrap the replicated-map MPI1 strategy behind the shared backend interface.
     explicit Mpi1SoaBackend(AntsSoA& ants, std::size_t mpi_sync_every);
 
     const char* name() const override;

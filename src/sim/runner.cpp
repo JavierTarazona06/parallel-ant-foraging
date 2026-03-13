@@ -26,15 +26,18 @@ void run_benchmark(const RunConfig& run_config,
 {
     const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
     const bool mpi2_mode = (run_config.exec_model == ExecModel::mpi2);
+    // Keep one local profiling state per run so benchmark iterations share the same counters.
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
     std::size_t previous_food_quantity = food_quantity;
 
+    // Execute warmup and measured iterations through the same backend path.
     for (std::size_t it = 0; it < run_config.iterations; ++it) {
         const bool measured = (it >= run_config.warmup);
         profile.set_enabled(measured);
 
+        // Poll SDL events even in benchmark mode so the window stays responsive when rendering is enabled.
         const std::uint64_t e0_start_ns = profile_now_ns();
         while (SDL_PollEvent(&event)) {
         }
@@ -45,15 +48,18 @@ void run_benchmark(const RunConfig& run_config,
 
         IterTimingNs iter_timing{};
         const std::uint64_t k0_start_ns = profile_now_ns();
+        // Time one full backend iteration through the shared world view.
         WorldState world{land, phen, food_quantity, profile, &iter_timing};
         backend.step(world, sim_config);
         const std::uint64_t k0_end_ns = profile_now_ns();
 
+        // Keep benchmark-only correctness checks alongside the timing accumulation.
         if (food_quantity < previous_food_quantity) {
             totals.food_monotonic_ok = false;
         }
         previous_food_quantity = food_quantity;
 
+        // Accumulate the measured kernel timings after warmup only.
         if (measured) {
             totals.k0_ns += (k0_end_ns - k0_start_ns);
             totals.k1_ns += iter_timing.k1_ns;
@@ -69,6 +75,7 @@ void run_benchmark(const RunConfig& run_config,
             totals.measured_iterations += 1;
         }
 
+        // Render inside the benchmark only when the selected mode explicitly keeps rendering enabled.
         if (render_enabled && renderer != nullptr && win != nullptr) {
             const std::uint64_t r0_start_ns = profile_now_ns();
             renderer->display(*win, food_quantity);
@@ -80,11 +87,13 @@ void run_benchmark(const RunConfig& run_config,
         }
     }
 
+    // Freeze fine-grained profiling and export its totals into the benchmark summary.
     profile.set_enabled(false);
     totals.k2_ns += profile.totals().k2_ns;
     totals.k3_ns += profile.totals().k3_ns;
     totals.food_quantity_final = food_quantity;
 
+    // Derive final pheromone checksums for post-run validation and report tables.
     const std::vector<double>& v1 = phen.v1_buffer();
     const std::vector<double>& v2 = phen.v2_buffer();
     totals.phen_v1_sum = std::accumulate(v1.begin(), v1.end(), 0.0);
@@ -92,6 +101,7 @@ void run_benchmark(const RunConfig& run_config,
     totals.phen_v1_max = (v1.empty() ? 0.0 : *std::max_element(v1.begin(), v1.end()));
     totals.phen_v2_max = (v2.empty() ? 0.0 : *std::max_element(v2.begin(), v2.end()));
 
+    // Reduce MPI runs to root-visible wall-times and globally consistent counters.
     if (mpi_mode) {
         totals.p0_ns = mpi_runtime::allreduce_max_uint64(totals.p0_ns);
         totals.p1_ns = mpi_runtime::allreduce_max_uint64(totals.p1_ns);
@@ -118,10 +128,12 @@ void run_benchmark(const RunConfig& run_config,
         totals.food_monotonic_ok = (monotonic_ok_count == static_cast<std::uint64_t>(mpi_runtime::size()));
     }
 
+    // Keep MPI benchmark output parseable by printing METRIC lines on root only.
     if (mpi_mode && !mpi_runtime::is_root()) {
         return;
     }
 
+    // Emit all benchmark totals in a stable METRIC format for scripts and reports.
     std::cout << "METRIC measured_iterations " << totals.measured_iterations << '\n';
     std::cout << "METRIC total_iterations " << run_config.iterations << '\n';
     std::cout << "METRIC warmup_iterations " << run_config.warmup << '\n';
@@ -178,6 +190,7 @@ void run_interactive(const RunConfig& run_config,
 {
     const bool mpi_mode = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
     const bool local_event_owner = (!mpi_mode || mpi_runtime::is_root());
+    // Keep a local profiling object even in interactive mode so backend helpers receive the same API.
     TimingProfile profile;
     profile.reset();
     SDL_Event event;
@@ -185,8 +198,10 @@ void run_interactive(const RunConfig& run_config,
     bool not_food_in_nest = true;
     std::size_t it = 0;
 
+    // Run the interactive loop until the local user or MPI-wide exit condition stops it.
     while (cont_loop) {
         ++it;
+        // Let root own SDL events when MPI rendering is active.
         if (local_event_owner) {
             while (SDL_PollEvent(&event)) {
                 if (event.type == SDL_QUIT) {
@@ -195,6 +210,7 @@ void run_interactive(const RunConfig& run_config,
             }
         }
 
+        // Keep all MPI ranks alive or stopped together during interactive execution.
         if (mpi_mode) {
             const std::uint64_t local_alive = cont_loop ? 1u : 0u;
             const std::uint64_t global_alive = mpi_runtime::allreduce_sum_uint64(local_alive);
@@ -204,12 +220,15 @@ void run_interactive(const RunConfig& run_config,
             break;
         }
 
+        // Advance one simulation iteration through the selected backend.
         WorldState world{land, phen, food_quantity, profile, nullptr};
         backend.step(world, sim_config);
+        // Draw the current world state when a renderer is available.
         if (renderer != nullptr && win != nullptr) {
             renderer->display(*win, food_quantity);
             win->blit();
         }
+        // Print the first successful food return once to mark visible simulation progress.
         if (not_food_in_nest && food_quantity > 0) {
             std::cout << "La première nourriture est arrivée au nid a l'iteration " << it << std::endl;
             not_food_in_nest = false;

@@ -10,6 +10,7 @@
 class TimingProfile;
 
 struct IterTimingNs {
+    // Store per-iteration kernel timings and MPI extras for benchmark reporting.
     std::uint64_t k1_ns{0};
     std::uint64_t k2_ns{0};
     std::uint64_t k3_ns{0};
@@ -23,6 +24,7 @@ struct IterTimingNs {
 };
 
 struct AntsSoA {
+    // Store ant attributes in separate arrays to favor vector-friendly traversal.
     std::vector<std::int32_t> x;
     std::vector<std::int32_t> y;
     std::vector<std::uint8_t> state;
@@ -47,6 +49,7 @@ struct AntsSoA {
     }
 };
 
+// Run a full serial SoA iteration on the whole ant population.
 void advance_time_soa(const fractal_land& land, pheronome& phen,
                       std::int32_t nest_x, std::int32_t nest_y,
                       std::int32_t food_x, std::int32_t food_y,
@@ -54,6 +57,7 @@ void advance_time_soa(const fractal_land& land, pheronome& phen,
                       TimingProfile& profile,
                       IterTimingNs* iter_timing = nullptr);
 
+// Run a full serial SoA iteration on a subrange of the ant population.
 void advance_time_soa_range(const fractal_land& land, pheronome& phen,
                             std::int32_t nest_x, std::int32_t nest_y,
                             std::int32_t food_x, std::int32_t food_y,
@@ -62,6 +66,7 @@ void advance_time_soa_range(const fractal_land& land, pheronome& phen,
                             TimingProfile& profile,
                             IterTimingNs* iter_timing = nullptr);
 
+// Advance only the ant-move phase on a subrange before evaporation and update.
 void advance_ants_soa_range(const fractal_land& land, pheronome& phen,
                             std::int32_t nest_x, std::int32_t nest_y,
                             std::int32_t food_x, std::int32_t food_y,

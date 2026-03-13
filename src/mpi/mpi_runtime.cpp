@@ -8,6 +8,7 @@
 namespace mpi_runtime {
 namespace {
 
+// Detect whether MPI has already been initialized by the active process.
 bool mpi_is_initialized()
 {
     int initialized = 0;
@@ -15,6 +16,7 @@ bool mpi_is_initialized()
     return initialized != 0;
 }
 
+// Detect whether MPI has already been finalized by the active process.
 bool mpi_is_finalized()
 {
     int finalized = 0;
@@ -22,6 +24,7 @@ bool mpi_is_finalized()
     return finalized != 0;
 }
 
+// Clamp collectives to MPI's int-based count API.
 int checked_count(std::size_t n)
 {
     assert(n <= static_cast<std::size_t>(std::numeric_limits<int>::max()));
@@ -32,6 +35,7 @@ int checked_count(std::size_t n)
 
 void init(int* argc, char*** argv)
 {
+    // Initialize MPI only once so serial and MPI modes can share the same executable.
     if (!mpi_is_initialized()) {
         MPI_Init(argc, argv);
     }
@@ -39,6 +43,7 @@ void init(int* argc, char*** argv)
 
 void finalize()
 {
+    // Finalize MPI only when it is still active for the current process.
     if (mpi_is_initialized() && !mpi_is_finalized()) {
         MPI_Finalize();
     }
@@ -46,6 +51,7 @@ void finalize()
 
 int rank()
 {
+    // Return rank 0 in serial mode so higher-level code can stay branch-light.
     if (!mpi_is_initialized() || mpi_is_finalized()) {
         return 0;
     }
@@ -56,6 +62,7 @@ int rank()
 
 int size()
 {
+    // Return communicator size 1 in serial mode so higher-level code can stay branch-light.
     if (!mpi_is_initialized() || mpi_is_finalized()) {
         return 1;
     }
@@ -66,11 +73,13 @@ int size()
 
 bool is_root()
 {
+    // Treat rank 0 as the root process for logging and rendering decisions.
     return rank() == 0;
 }
 
 void allreduce_max_double_array(double* ptr, std::size_t n)
 {
+    // Reconcile replicated double arrays in place with a MAX reduction.
     if (ptr == nullptr || n == 0 || !mpi_is_initialized() || mpi_is_finalized()) {
         return;
     }
@@ -79,6 +88,7 @@ void allreduce_max_double_array(double* ptr, std::size_t n)
 
 std::uint64_t allreduce_sum_uint64(std::uint64_t value)
 {
+    // Sum rank-local counters into a globally consistent unsigned 64-bit value.
     if (!mpi_is_initialized() || mpi_is_finalized()) {
         return value;
     }
@@ -90,6 +100,7 @@ std::uint64_t allreduce_sum_uint64(std::uint64_t value)
 
 std::uint64_t allreduce_max_uint64(std::uint64_t value)
 {
+    // Keep the slowest-rank or largest-rank-local 64-bit value after a MAX reduction.
     if (!mpi_is_initialized() || mpi_is_finalized()) {
         return value;
     }
@@ -101,6 +112,7 @@ std::uint64_t allreduce_max_uint64(std::uint64_t value)
 
 double allreduce_max_double(double value)
 {
+    // Keep the slowest-rank wall-time after a double MAX reduction.
     if (!mpi_is_initialized() || mpi_is_finalized()) {
         return value;
     }

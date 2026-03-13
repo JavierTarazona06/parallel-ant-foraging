@@ -25,6 +25,7 @@
 
 namespace {
 
+// Apply the requested OpenMP thread count and return the effective runtime value.
 std::size_t configure_thread_count(const RunConfig& run_config)
 {
     if (run_config.exec_model != ExecModel::omp) {
@@ -44,6 +45,7 @@ std::size_t configure_thread_count(const RunConfig& run_config)
 #endif
 }
 
+// Print one startup header that captures the selected execution and simulation settings.
 void print_startup_header(const RunConfig& run_config, const SimConfig& sim_config, std::size_t thread_count)
 {
     if (run_config.benchmark) {
@@ -69,6 +71,7 @@ void print_startup_header(const RunConfig& run_config, const SimConfig& sim_conf
     }
 }
 
+// Normalize terrain costs to [0, 1] before the simulation starts.
 void normalize_land(fractal_land& land)
 {
     double max_val = 0.0;
@@ -88,6 +91,7 @@ void normalize_land(fractal_land& land)
     }
 }
 
+// Build the initial ant container in AoS or SoA form according to the chosen layout.
 void initialize_ants(const RunConfig& run_config,
                      const SimConfig& sim_config,
                      const fractal_land& land,
@@ -133,6 +137,7 @@ void initialize_ants(const RunConfig& run_config,
 
 int main(int nargs, char* argv[])
 {
+    // Parse the CLI into separate run controls and simulation parameters.
     const auto parsed_config = parse_args(nargs, argv);
     if (!parsed_config.has_value()) {
         print_usage(argv[0]);
@@ -144,12 +149,15 @@ int main(int nargs, char* argv[])
     const bool use_mpi = (run_config.exec_model == ExecModel::mpi1 || run_config.exec_model == ExecModel::mpi2);
     const bool use_mpi1 = (run_config.exec_model == ExecModel::mpi1);
     const bool use_mpi2 = (run_config.exec_model == ExecModel::mpi2);
+    // Initialize MPI only for distributed execution modes.
     if (use_mpi) {
         mpi_runtime::init(&nargs, &argv);
     }
 
+    // Resolve the effective OpenMP thread count before printing headers.
     const std::size_t thread_count = configure_thread_count(run_config);
 
+    // Bring up SDL once so interactive and benchmark rendering can share the same setup path.
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         if (use_mpi) {
@@ -158,12 +166,14 @@ int main(int nargs, char* argv[])
         return 1;
     }
 
+    // Let only root print the startup banner when MPI is active.
     if (!use_mpi || mpi_runtime::is_root()) {
         print_startup_header(run_config, sim_config, thread_count);
     }
 
     MeasurementTotals totals;
 
+    // Build and normalize the terrain before creating ants or pheromones.
     const std::uint64_t p0_start_ns = profile_now_ns();
     fractal_land land(8, 2, 1., 1024);
     totals.p0_ns = profile_now_ns() - p0_start_ns;
@@ -172,17 +182,21 @@ int main(int nargs, char* argv[])
     normalize_land(land);
     totals.p1_ns = profile_now_ns() - p1_start_ns;
 
+    // Apply the shared exploration coefficient before the first ant step.
     ant::set_exploration_coef(sim_config.epsilon);
 
     std::vector<ant> ants_aos;
     AntsSoA ants_soa;
+    // Create the ant container matching the selected layout.
     const std::uint64_t p2_start_ns = profile_now_ns();
     initialize_ants(run_config, sim_config, land, ants_aos, ants_soa);
     totals.p2_ns = profile_now_ns() - p2_start_ns;
 
+    // Build the pheromone map after the terrain and ant initialization are fixed.
     pheronome phen(land.dimensions(), sim_config.pos_food, sim_config.pos_nest, sim_config.alpha, sim_config.beta);
     phen.set_openmp_evaporation_enabled(run_config.exec_model == ExecModel::omp);
 
+    // Emit MPI1 sync metadata once so benchmark scripts can label the campaign correctly.
     if (run_config.benchmark && use_mpi && mpi_runtime::is_root()) {
         using pheromone_value_t = std::remove_pointer_t<decltype(phen.v1_data())>;
         const std::uint64_t payload_bytes_est =
@@ -192,10 +206,12 @@ int main(int nargs, char* argv[])
     }
 
     std::size_t food_quantity = 0;
+    // Use a minimal world view to build the backend selected by the CLI.
     TimingProfile backend_factory_profile;
     backend_factory_profile.reset();
     WorldState backend_factory_world{land, phen, food_quantity, backend_factory_profile, nullptr};
     std::unique_ptr<Backend> backend = make_backend(run_config, sim_config, backend_factory_world, ants_aos, ants_soa);
+    // Fail early if the requested execution/layout combination has no backend implementation.
     if (!backend) {
         SDL_Quit();
         if (use_mpi) {
@@ -207,6 +223,7 @@ int main(int nargs, char* argv[])
     std::unique_ptr<Window> win;
     std::unique_ptr<Renderer> renderer;
     bool render_enabled = run_config.render;
+    // Restrict MPI rendering to root so multi-rank runs do not open multiple windows.
     if ((use_mpi1 || use_mpi2) && render_enabled && mpi_runtime::size() > 1) {
         if (mpi_runtime::is_root()) {
             std::cerr << "INFO " << exec_model_to_text(run_config.exec_model)
@@ -214,6 +231,7 @@ int main(int nargs, char* argv[])
         }
         render_enabled = mpi_runtime::is_root();
     }
+    // Lazily create the SDL window and renderer only when rendering is enabled.
     if (render_enabled) {
         win = std::make_unique<Window>("Ant Simulation", 2 * land.dimensions() + 10, land.dimensions() + 266);
         if (win->is_ready()) {
@@ -224,6 +242,7 @@ int main(int nargs, char* argv[])
         }
     }
 
+    // Dispatch into benchmark or interactive mode once the world is fully initialized.
     if (run_config.benchmark) {
         run_benchmark(run_config, sim_config, land, phen, *backend, render_enabled, renderer.get(), win.get(),
                       food_quantity, totals);
@@ -231,6 +250,7 @@ int main(int nargs, char* argv[])
         run_interactive(run_config, sim_config, land, phen, *backend, renderer.get(), win.get(), food_quantity);
     }
 
+    // Tear down SDL and MPI in the reverse order of their initialization.
     SDL_Quit();
     if (use_mpi) {
         mpi_runtime::finalize();

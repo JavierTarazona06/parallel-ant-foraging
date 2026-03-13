@@ -4,6 +4,7 @@
 class Window
 {
 public:
+    // Own the SDL window and renderer used by the interactive simulation view.
     Window(const char* title, int width, int height);
     Window(const Window&) = delete;
     Window(Window&&) = delete;
@@ -12,6 +13,7 @@ public:
     Window& operator = (const Window&) = delete;
     Window& operator = (Window&&) = delete;
 
+    // Expose the raw SDL window so higher-level code can query SDL state when needed.
     SDL_Window* get() { return m_window; }
     bool is_ready() const { return m_window != nullptr && m_renderer != nullptr; }
     SDL_Surface* getSurface() { return SDL_GetWindowSurface(m_window); }

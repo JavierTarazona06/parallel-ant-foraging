@@ -12,6 +12,7 @@ class Window;
 class Backend;
 
 struct MeasurementTotals {
+    // Collect benchmark totals that are later emitted as METRIC lines.
     std::uint64_t p0_ns{0};
     std::uint64_t p1_ns{0};
     std::uint64_t p2_ns{0};
@@ -37,6 +38,7 @@ struct MeasurementTotals {
     double phen_v2_max{0.0};
 };
 
+// Execute the warmup and measured benchmark loop around the selected backend.
 void run_benchmark(const RunConfig& run_config,
                    const SimConfig& sim_config,
                    const fractal_land& land,
@@ -48,6 +50,7 @@ void run_benchmark(const RunConfig& run_config,
                    std::size_t& food_quantity,
                    MeasurementTotals& totals);
 
+// Execute the interactive loop until the user closes the window.
 void run_interactive(const RunConfig& run_config,
                      const SimConfig& sim_config,
                      const fractal_land& land,

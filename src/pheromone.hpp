@@ -1,5 +1,4 @@
 #pragma once
 
-// Compatibility alias for the legacy misspelled header.
-// Prefer including "pheromone.hpp" in new or modified files.
+// Keep this alias so new code can include the corrected header name.
 #include "pheronome.hpp"

@@ -10,11 +10,7 @@
 #include <vector>
 #include "basic_types.hpp"
 
-/**
- * @brief Carte des phéronomes
- * @details Gère une carte des phéronomes avec leurs mis à jour ( dont l'évaporation )
- *
- */
+// Store the two pheromone channels, their update buffers, and boundary padding.
 class pheronome {
 public:
     using size_t      = unsigned long;
@@ -48,15 +44,7 @@ public:
         }
     };
 
-    /**
-     * @brief Construit une carte initiale des phéronomes
-     * @details La carte des phéronomes est initialisées à zéro ( neutre )
-     *          sauf pour les bords qui sont marqués comme indésirables
-     *
-     * @param dim Nombre de cellule dans chaque direction
-     * @param alpha Paramètre de bruit
-     * @param beta Paramêtre d'évaporation
-     */
+    // Build the initial map with padded borders and fixed nest/food sources.
     pheronome( size_t dim, const position_t& pos_food, const position_t& pos_nest,
                double alpha = 0.7, double beta = 0.9999 )
         : m_dim( dim ),
@@ -117,11 +105,13 @@ public:
 
     std::size_t cell_count() const { return m_map_v1.size(); }
 
+    // Let the backend decide whether evaporation should use the OpenMP loop.
     void set_openmp_evaporation_enabled(bool enabled)
     {
         m_use_openmp_evaporation = enabled;
     }
 
+    // Apply evaporation to the next-buffer values before marks are committed.
     void do_evaporation( ) {
         if (m_use_openmp_evaporation) {
 #ifdef _OPENMP
@@ -151,6 +141,7 @@ public:
             }
     }
 
+    // Compute the new local pheromone mark from the four-neighbor stencil.
     void mark_pheronome( std::int32_t x, std::int32_t y ) {
       assert( x >= 0 );
       assert( y >= 0 );
@@ -175,9 +166,7 @@ public:
             m_alpha * std::max( {v2_left, v2_right, v2_upper, v2_bottom} ) +
             ( 1 - m_alpha ) * 0.25 * ( v2_left + v2_right + v2_upper + v2_bottom );
 
-        // Idempotent mark in the current iteration:
-        // first visit sets the mark value, repeated visits use MAX so update order
-        // does not matter (future OpenMP/MPI MAX-reduction compatibility).
+        // Keep repeated marks idempotent so update order stays compatible with parallel reductions.
         if (m_mark_epoch[idx] != m_epoch) {
             m_mark_epoch[idx] = m_epoch;
             m_buffer_v1[idx] = mark_v1;
@@ -192,6 +181,7 @@ public:
         mark_pheronome(pos.x, pos.y);
     }
 
+    // Commit buffered pheromones, refresh padded borders, and restore fixed sources.
     void update( ) {
         m_map_v1.swap( m_buffer_v1 );
         m_map_v2.swap( m_buffer_v2 );
@@ -202,6 +192,7 @@ public:
     }
 
 private:
+    // Convert interior coordinates to the padded flat storage index.
     size_t flat_index( size_t i, size_t j ) const
     {
       return ( i + 1 ) * m_stride + ( j + 1 );
@@ -211,14 +202,9 @@ private:
     {
       return (pos.x+1)*m_stride + pos.y + 1;
     }
-    /**
-     * @brief Mets à jour les conditions limites sur les cellules fantômes
-     * @details Mets à jour les conditions limites sur les cellules fantômes :
-     *     pour l'instant, on se contente simplement de mettre ces cellules avec
-     *     des valeurs à -1 pour être sûr que les fourmis évitent ces cellules
-     */
+    // Refresh ghost cells so ants treat the padded border as an invalid region.
     void cl_update( ) {
-        // On mets tous les bords à -1 pour les marquer comme indésirables :
+        // Mark every padded edge cell as undesirable in both pheromone channels.
         for ( unsigned long j = 0; j < m_stride; ++j ) {
             m_map_v1[j]                            = -1.;
             m_map_v2[j]                            = -1.;
@@ -231,6 +217,7 @@ private:
         }
     }
 
+    // Advance the mark epoch and reset it safely if the counter wraps around.
     void advance_epoch()
     {
         if (m_epoch == std::numeric_limits<std::uint32_t>::max()) {

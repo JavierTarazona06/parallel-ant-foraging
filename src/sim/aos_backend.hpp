@@ -5,6 +5,7 @@
 class AosBackend final : public Backend
 {
 public:
+    // Wrap the original AoS simulation loop behind the shared backend interface.
     explicit AosBackend(std::vector<ant>& ants);
 
     const char* name() const override;

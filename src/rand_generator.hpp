@@ -5,6 +5,7 @@
 
 struct RandomGenerator
 {
+    // Keep a deterministic coordinate-based generator for terrain synthesis.
     std::uint32_t m_seed;
     double m_min_val;
     double m_max_val;
@@ -22,6 +23,7 @@ struct RandomGenerator
 
 };
 
+// Generate an integer in [min_val, max_val] while updating the caller-owned seed.
 inline
 std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::size_t& seed )
 {
@@ -29,12 +31,14 @@ std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::size_
     return min_val + seed % ( max_val - min_val + 1 );
 }
 
+// Generate a floating-point value in [min_val, max_val] while updating the caller-owned seed.
 inline double rand_double ( double min_val, double max_val, std::size_t& seed )
 {
     seed = static_cast<std::size_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);
     return min_val + std::fmod( seed, ( max_val - min_val + 1 ) );
 }
 
+// Provide the same integer helper for the 32-bit seeds stored in SoA ant arrays.
 inline
 std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::uint32_t& seed )
 {
@@ -42,6 +46,7 @@ std::int32_t rand_int32 ( std::int32_t min_val, std::int32_t max_val, std::uint3
     return min_val + seed % ( max_val - min_val + 1 );
 }
 
+// Provide the same floating-point helper for the 32-bit seeds stored in SoA ant arrays.
 inline double rand_double ( double min_val, double max_val, std::uint32_t& seed )
 {
     seed = static_cast<std::uint32_t>((1664525ULL * static_cast<std::uint64_t>(seed) + 1013904223ULL) % 0xFFFFFFFFULL);

@@ -11,9 +11,7 @@ class TimingProfile;
 class ant
 {
 public:
-    /**
-     * Une fourmi peut être dans deux états possibles : chargée ( elle porte de la nourriture ) ou non chargée
-     */
+    // Ants only switch between unloaded and loaded states during the simulation.
     enum state { unloaded = 0, loaded = 1 };
     ant(const position_t& pos, std::size_t seed ) : m_seed(seed), m_state(unloaded), m_position(pos)
     {} 
@@ -28,12 +26,14 @@ public:
     const position_t& get_position() const { return m_position; }
     static void set_exploration_coef(double eps) { m_eps = eps; }
 
+    // Advance one ant for one simulation iteration on the shared world state.
     void advance( pheronome& phen, const fractal_land& land,
                   const position_t& pos_food, const position_t& pos_nest, std::size_t& cpteur_food,
                   TimingProfile& profile );
 
 private:
-    static double m_eps; // Coefficient d'exploration commun à toutes les fourmis.
+    // Share the same exploration coefficient across all AoS ants.
+    static double m_eps;
     std::size_t m_seed;
     state m_state;
     position_t m_position;

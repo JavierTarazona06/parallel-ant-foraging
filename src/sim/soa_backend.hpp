@@ -5,6 +5,7 @@
 class SoaBackend final : public Backend
 {
 public:
+    // Wrap the serial SoA kernel behind the shared backend interface.
     explicit SoaBackend(AntsSoA& ants);
 
     const char* name() const override;
