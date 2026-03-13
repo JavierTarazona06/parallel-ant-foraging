@@ -252,3 +252,55 @@ on échange principalement des informations de bord (halo) et des fourmis migran
 Dans cette nouvelle campagne, on voit cependant la limite de granularité :
 pour \(np=8\), le coût des échanges locaux devient trop élevé par rapport au calcul local,
 ce qui fait baisser speedup et efficacité.
+
+\subsection{Proposition de réponse à la question bonus}
+
+Pour répondre à la question bonus, nous proposerions d'aller un pas plus loin que la
+simple description de stratégie : l'idée serait de mettre réellement en oeuvre MPI2,
+puis de mesurer l'accélération obtenue en fonction du nombre de processus.
+Le but ne serait donc pas seulement de ``faire une version MPI'', mais de vérifier si
+la décomposition de domaine permet bien de réduire le coût de communication par rapport
+à MPI1.
+
+La stratégie retenue resterait celle décrite dans cette section :
+une décomposition 1D par lignes, un halo de 1 cellule pour lire correctement les voisins,
+et une migration des fourmis uniquement entre processus adjacents.
+De manière intuitive, chaque rang travaillerait sur sa propre zone de la carte
+et n'échangerait que ce qui est nécessaire avec ses voisins, au lieu de resynchroniser
+la carte complète à chaque itération.
+Cette approche suit directement les idées du cours :
+\emph{domain decomposition}, communications locales, et réduction du volume de données échangées.
+
+L'idée serait ensuite de mesurer le temps noyau \(K0\) pour plusieurs valeurs de \(np\),
+par exemple \(np \in \{1,2,4,8\}\), en gardant exactement la même configuration globale
+(même nombre total de fourmis, même taille de carte, un coeur par processus).
+L'accélération pourrait alors être calculée par :
+\[
+S(p)=\frac{T(1)}{T(p)}
+\qquad\text{et}\qquad
+E(p)=\frac{S(p)}{p}
+\]
+où \(T(1)\) serait le temps du backend \texttt{mpi2+soa} avec un seul processus,
+et \(T(p)\) le temps du même backend avec \(p\) processus.
+Ce choix de référence permettrait d'évaluer l'effet du parallélisme MPI sans mélanger
+les différences algorithmiques avec les versions \texttt{serial} ou \texttt{omp}.
+
+Pour rendre l'analyse lisible, nous proposerions de reporter au minimum un tableau
+avec \(np\), \(K0\), \(S(p)\) et \(E(p)\), ainsi qu'une décomposition plus fine
+de \(K1\), \(K4\), \(K5\), \(K_{\text{MPI\_halo}}\) et \(K_{\text{MPI\_migrate}}\).
+Ainsi, on pourrait voir non seulement si MPI2 accélère, mais aussi à partir de quel point
+les échanges de halo et la migration des fourmis commencent à limiter le gain.
+
+De façon intuitive, on s'attendrait à ce que le temps baisse d'abord quand \(np\) augmente,
+car chaque processus traite moins de calcul local.
+En revanche, quand \(np\) devient trop grand par rapport à la taille du problème,
+le coût des communications locales et le déséquilibre de charge peuvent prendre le dessus.
+On s'attendrait donc à observer un speedup réel mais non linéaire, avec une efficacité
+qui baisse progressivement lorsque le nombre de processus devient trop élevé.
+
+En conclusion, cette réponse au bonus consisterait à montrer que la stratégie MPI2 est
+pertinente pour réduire le coût des synchronisations globales de MPI1, mais que son intérêt
+reste conditionné par l'équilibre entre calcul local et communications.
+Autrement dit, si MPI2 est bien implémenté, il devrait devenir plus intéressant que MPI1
+dès que le coût des \texttt{Allreduce} globaux devient dominant, tout en restant limité
+par les échanges de halo, la migration et le \emph{load balancing}.
