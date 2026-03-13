@@ -13,18 +13,22 @@ const char* AosBackend::name() const
 void AosBackend::step(WorldState& world, const SimConfig& sim_config)
 {
     const std::uint64_t t0_ns = profile_now_ns();
+    // Advance each ant sequentially on the shared world state.
     for (std::size_t i = 0; i < m_ants.size(); ++i) {
         m_ants[i].advance(world.phen, world.land, sim_config.pos_food, sim_config.pos_nest, world.food_quantity,
                           world.profile);
     }
     const std::uint64_t t1_ns = profile_now_ns();
 
+    // Apply global pheromone evaporation after all ant moves.
     world.phen.do_evaporation();
     const std::uint64_t t2_ns = profile_now_ns();
 
+    // Commit the next pheromone map for the next iteration.
     world.phen.update();
     const std::uint64_t t3_ns = profile_now_ns();
 
+    // Store per-phase timings when benchmark profiling is enabled.
     if (world.iter_timing != nullptr) {
         world.iter_timing->k1_ns += (t1_ns - t0_ns);
         world.iter_timing->k4_ns += (t2_ns - t1_ns);

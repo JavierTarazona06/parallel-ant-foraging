@@ -49,6 +49,7 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     const std::size_t stride = static_cast<std::size_t>(world.land.dimensions()) + 2u;
     const int max_threads = omp_get_max_threads();
 
+    // Allocate one touched-cell buffer per thread before entering the parallel region.
     std::vector<ThreadTouchedCells> per_thread(static_cast<std::size_t>(max_threads));
 
 #pragma omp parallel
@@ -66,6 +67,7 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
         local.touched_v1.reserve(chunk);
         local.touched_v2.reserve(chunk);
 
+        // Advance ants in parallel while recording thread-local marks and counters.
 #pragma omp for schedule(static)
         for (std::size_t ant_index = 0; ant_index < m_ants.size(); ++ant_index) {
             auto mark_sink = [&local, stride](std::int32_t mark_x, std::int32_t mark_y, int ind_pher) {
@@ -87,6 +89,7 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     std::uint64_t merged_k3_ns = 0;
     std::size_t total_touched_v1 = 0;
     std::size_t total_touched_v2 = 0;
+    // Merge thread-local food and work counters after the parallel loop.
     for (const ThreadTouchedCells& local : per_thread) {
         merged_food_delta += local.food_delta;
         merged_k2_ns += local.k2_ns;
@@ -100,11 +103,13 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     merged_touched_v1.reserve(total_touched_v1);
     merged_touched_v2.reserve(total_touched_v2);
 
+    // Concatenate all thread-local touched cells into shared replay buffers.
     for (const ThreadTouchedCells& local : per_thread) {
         merged_touched_v1.insert(merged_touched_v1.end(), local.touched_v1.begin(), local.touched_v1.end());
         merged_touched_v2.insert(merged_touched_v2.end(), local.touched_v2.begin(), local.touched_v2.end());
     }
 
+    // Deduplicate touched cells so each pheromone mark is replayed once per channel.
     std::sort(merged_touched_v1.begin(), merged_touched_v1.end());
     merged_touched_v1.erase(std::unique(merged_touched_v1.begin(), merged_touched_v1.end()), merged_touched_v1.end());
 
@@ -113,8 +118,7 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
     const std::size_t touched_raw_total = total_touched_v1 + total_touched_v2;
     const std::size_t touched_unique_total = merged_touched_v1.size() + merged_touched_v2.size();
 
-    // Replay marks only once per unique touched cell per channel outside
-    // the OpenMP region to avoid races on the pheromone map.
+    // Replay unique pheromone marks outside OpenMP to avoid races on the shared map.
     for (const std::size_t idx : merged_touched_v1) {
         replay_mark_from_index(world.phen, idx, stride);
     }
@@ -126,12 +130,15 @@ void OmpSoaBackend::step(WorldState& world, const SimConfig& sim_config)
 
     const std::uint64_t t1_ns = profile_now_ns();
 
+    // Evaporate the shared pheromone grid after all marks have been replayed.
     world.phen.do_evaporation();
     const std::uint64_t t2_ns = profile_now_ns();
 
+    // Commit the updated pheromone buffers for the next iteration.
     world.phen.update();
     const std::uint64_t t3_ns = profile_now_ns();
 
+    // Publish wall-time and touched-cell metrics for the benchmark runner.
     if (world.iter_timing != nullptr) {
         world.iter_timing->k1_ns += (t1_ns - t0_ns);
         world.iter_timing->k2_ns += merged_k2_ns;

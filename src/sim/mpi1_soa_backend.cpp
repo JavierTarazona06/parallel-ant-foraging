@@ -24,6 +24,7 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     const std::size_t mpi_size = static_cast<std::size_t>(std::max(1, mpi_runtime::size()));
     const std::size_t mpi_rank = static_cast<std::size_t>(std::max(0, mpi_runtime::rank()));
 
+    // Split the global ant array into one contiguous block per MPI rank.
     const std::size_t base = ant_count / mpi_size;
     const std::size_t remainder = ant_count % mpi_size;
     const std::size_t begin = mpi_rank * base + std::min(mpi_rank, remainder);
@@ -31,25 +32,28 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     std::size_t food_delta_local = 0;
     std::uint64_t mpi_sync_ns = 0;
 
-    // MPI1 phase 1: each rank only advances its local ant block.
+    // Advance only the local ant block while keeping a full copy of the map on each rank.
     advance_ants_soa_range(world.land, world.phen, sim_config.pos_nest.x, sim_config.pos_nest.y, sim_config.pos_food.x,
                            sim_config.pos_food.y, m_ants, begin, end, sim_config.epsilon, food_delta_local,
                            world.profile, world.iter_timing);
 
+    // Synchronize food collection globally so all ranks keep the same counter.
     const std::uint64_t food_sync_start_ns = profile_now_ns();
     const std::uint64_t food_delta_global_u64 =
         mpi_runtime::allreduce_sum_uint64(static_cast<std::uint64_t>(food_delta_local));
     mpi_sync_ns += (profile_now_ns() - food_sync_start_ns);
     world.food_quantity += static_cast<std::size_t>(food_delta_global_u64);
 
+    // Run local evaporation on the replicated pheromone map.
     const std::uint64_t evap_start_ns = profile_now_ns();
     world.phen.do_evaporation();
     const std::uint64_t evap_end_ns = profile_now_ns();
 
+    // Commit the local pheromone update before the optional global sync.
     world.phen.update();
     const std::uint64_t update_end_ns = profile_now_ns();
 
-    // Iteration counter starts at 0, so iteration 0 always synchronizes for any K>=1.
+    // Sync replicated pheromone maps every mpi_sync_every iterations.
     const bool do_phen_sync = ((m_iteration % m_sync_every) == 0u);
     if (do_phen_sync) {
         const std::uint64_t phen_sync_start_ns = profile_now_ns();
@@ -60,6 +64,7 @@ void Mpi1SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 
     ++m_iteration;
 
+    // Report local K4/K5 and MPI synchronization cost to the runner.
     if (world.iter_timing != nullptr) {
         world.iter_timing->k4_ns += (evap_end_ns - evap_start_ns);
         world.iter_timing->k5_ns += (update_end_ns - evap_end_ns);

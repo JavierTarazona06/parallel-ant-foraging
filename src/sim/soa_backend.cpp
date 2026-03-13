@@ -11,6 +11,7 @@ const char* SoaBackend::name() const
 
 void SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 {
+    // Delegate the whole iteration to the serial SoA kernel.
     advance_time_soa(world.land, world.phen, sim_config.pos_nest.x, sim_config.pos_nest.y, sim_config.pos_food.x,
                      sim_config.pos_food.y, m_ants, sim_config.epsilon, world.food_quantity, world.profile,
                      world.iter_timing);

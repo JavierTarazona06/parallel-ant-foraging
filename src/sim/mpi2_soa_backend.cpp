@@ -18,12 +18,7 @@ namespace {
 
 constexpr std::size_t kHaloWidth = 1u;
 
-// Baseline MPI2 migration policy (deferred migration):
-// In this project, an ant can do multiple substeps per iteration (consumed_time < 1.0).
-// For the baseline mpi2 path, when an ant crosses a domain boundary, it is transferred
-// to the neighbor rank but does not continue its remaining substeps in the same iteration.
-// It continues on the destination rank at the next iteration.
-// This is a documented approximation for course-level bonus scope.
+// MPI2 uses deferred migration, so ants crossing a rank boundary continue only at the next iteration.
 
 bool mpi2_debug_partition_enabled()
 {
@@ -69,12 +64,13 @@ const char* Mpi2SoaBackend::name() const
 
 void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
 {
-    // MPI2 path: partition/halo + local-ant step + deferred migration outboxes.
+    // Initialize the MPI2 domain split and local ant ownership on first use.
     initialize_partition_if_needed(world);
     initialize_local_ants_if_needed();
     m_alpha = sim_config.alpha;
 
     const std::uint64_t halo_start_ns = profile_now_ns();
+    // Exchange halo rows so local border reads can see neighbor pheromones.
     halo_exchange();
     const std::uint64_t halo_end_ns = profile_now_ns();
 
@@ -82,13 +78,11 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k_mpi_halo_ns += (halo_end_ns - halo_start_ns);
     }
 
-    // Mirror serial SoA semantics for pheromones:
-    // ants read current map (m_local_phen), marks go to iteration buffer
-    // (m_local_next_phen), then evaporation is applied on the buffer and the
-    // buffer is committed as the next map.
+    // Copy the current local map into the next-iteration buffer before ant marks.
     prepare_iteration_buffer();
 
     std::size_t food_delta_local = 0;
+    // Advance owned ants locally and fill migration outboxes when they leave the subdomain.
     step_local_ants(world, sim_config, food_delta_local);
 
     const std::uint64_t food_sync_start_ns = profile_now_ns();
@@ -101,6 +95,7 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     }
 
     const std::uint64_t migrate_start_ns = profile_now_ns();
+    // Exchange aggregated migrant buffers with the two row neighbors.
     exchange_migrating_ants();
     const std::uint64_t migrate_end_ns = profile_now_ns();
     if (world.iter_timing != nullptr) {
@@ -109,10 +104,12 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
     maybe_print_migration_debug();
 
     const std::uint64_t k4_start_ns = profile_now_ns();
+    // Evaporate only the owned interior cells of the local pheromone buffer.
     local_k4_evaporation(m_local_next_phen, sim_config.beta);
     const std::uint64_t k4_end_ns = profile_now_ns();
 
     const std::uint64_t k5_start_ns = k4_end_ns;
+    // Commit the local next buffer and restore forced nest/food pheromone values.
     commit_iteration_buffer();
     apply_local_forcing(m_local_phen, sim_config);
     const std::uint64_t k5_end_ns = profile_now_ns();
@@ -122,8 +119,7 @@ void Mpi2SoaBackend::step(WorldState& world, const SimConfig& sim_config)
         world.iter_timing->k5_ns += (k5_end_ns - k5_start_ns);
     }
 
-    // Renderer in mpi2 reads the global SoA/pheromone views.
-    // For interactive visualization we synchronize those views from local MPI2 state.
+    // Gather local ants and subgrids on root so the interactive renderer sees the global state.
     if (world.iter_timing == nullptr) {
         sync_global_state_for_render(world);
     }
@@ -154,6 +150,7 @@ void Mpi2SoaBackend::initialize_partition_if_needed(const WorldState& world)
     m_size = std::max(1, mpi_runtime::size());
     m_rank = std::clamp(mpi_runtime::rank(), 0, m_size - 1);
 
+    // Build the 1D row partition and remember the up/down MPI neighbors.
     const std::size_t rank = static_cast<std::size_t>(m_rank);
     const std::size_t size = static_cast<std::size_t>(m_size);
     const std::size_t base_rows = m_global_h / size;
@@ -177,6 +174,7 @@ void Mpi2SoaBackend::initialize_local_pheromone_grid(const WorldState& world)
         return;
     }
 
+    // Slice the global pheromone map into a local subgrid with one-cell halo padding.
     const std::size_t local_h = m_y1 - m_y0;
     m_local_phen.reset(m_global_w, local_h, -1.0);
     m_local_next_phen.reset(m_global_w, local_h, -1.0);
@@ -230,6 +228,7 @@ void Mpi2SoaBackend::prepare_iteration_buffer()
     if (!m_local_grid_ready) {
         return;
     }
+    // Start the next buffer as a copy of the current local map before writing new marks.
     m_local_next_phen = m_local_phen;
 }
 
@@ -238,6 +237,7 @@ void Mpi2SoaBackend::commit_iteration_buffer()
     if (!m_local_grid_ready) {
         return;
     }
+    // Swap the next buffer into place and reset halo bookkeeping for the next iteration.
     std::swap(m_local_phen, m_local_next_phen);
     clear_halo(m_local_phen);
 
@@ -254,6 +254,7 @@ void Mpi2SoaBackend::local_k4_evaporation(LocalPheromoneGrid& grid, double beta)
     if (!m_local_grid_ready) {
         return;
     }
+    // Evaporate only owned interior cells because halo values are refreshed by communication.
     const std::size_t local_h = grid.local_height();
     const std::size_t w = m_global_w;
     for (std::size_t ly = 1; ly <= local_h; ++ly) {
@@ -269,6 +270,7 @@ void Mpi2SoaBackend::apply_local_forcing(LocalPheromoneGrid& grid, const SimConf
     if (!m_local_grid_ready) {
         return;
     }
+    // Re-apply food and nest forcing only when those cells belong to this rank.
     if (owns_cell_global(sim_config.pos_food.x, sim_config.pos_food.y)) {
         const LocalCellCoord food = global_to_local(sim_config.pos_food.x, sim_config.pos_food.y);
         grid.v1(static_cast<std::size_t>(food.lx), static_cast<std::size_t>(food.ly)) = 1.0;
@@ -285,6 +287,7 @@ void Mpi2SoaBackend::initialize_local_ants_if_needed()
         return;
     }
 
+    // Keep only ants whose global coordinates fall inside this rank subdomain.
     m_local_ants.clear();
     m_local_ants.reserve(m_ants.size());
 
@@ -309,6 +312,7 @@ void Mpi2SoaBackend::halo_exchange()
         return;
     }
 
+    // Exchange both pheromone channels because border reads depend on V1 and V2.
     halo_exchange_channel(m_local_phen.v1_data(), 100);
     halo_exchange_channel(m_local_phen.v2_data(), 200);
 }
@@ -329,12 +333,12 @@ void Mpi2SoaBackend::halo_exchange_channel(double* channel_base, int tag_base)
     double* last_interior = channel_base + local_h * stride;
     double* bottom_halo = channel_base + (local_h + 1u) * stride;
 
-    // 1) send first interior row to UP, receive DOWN first interior row into bottom halo.
+    // Send the top owned row upward while receiving the bottom neighbor row into the lower halo.
     MPI_Sendrecv(first_interior, row_count, MPI_DOUBLE, m_up_rank, tag_base + 1,
                  bottom_halo, row_count, MPI_DOUBLE, m_down_rank, tag_base + 1,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-    // 2) send last interior row to DOWN, receive UP last interior row into top halo.
+    // Send the bottom owned row downward while receiving the top neighbor row into the upper halo.
     MPI_Sendrecv(last_interior, row_count, MPI_DOUBLE, m_down_rank, tag_base + 2,
                  top_halo, row_count, MPI_DOUBLE, m_up_rank, tag_base + 2,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -353,6 +357,7 @@ void Mpi2SoaBackend::step_local_ants(WorldState& world, const SimConfig& sim_con
     m_outbox_up.reserve(m_local_ants.size() / 4 + 4);
     m_outbox_down.reserve(m_local_ants.size() / 4 + 4);
 
+    // Compact the local ant arrays in place while peeling migrated ants into outboxes.
     const std::uint64_t step_start_ns = profile_now_ns();
     std::uint64_t k2_work_ns = 0;
     std::uint64_t k3_work_ns = 0;
@@ -436,7 +441,7 @@ bool Mpi2SoaBackend::advance_one_local_ant(WorldState& world, const SimConfig& s
             }
         }
 
-        // Deferred migration baseline: ant is moved to neighbor outbox and stops this iteration.
+        // Stop the ant here so deferred migration can resume it on the neighbor next iteration.
         if (!owns_cell_global(new_x, new_y)) {
             m_local_ants.x[ant_idx] = new_x;
             m_local_ants.y[ant_idx] = new_y;
@@ -488,7 +493,7 @@ void Mpi2SoaBackend::enqueue_migrated_ant(std::size_t ant_idx)
         return;
     }
 
-    // 1D row split owns full X span; unexpected migration on X is dropped for baseline.
+    // Drop unexpected X-direction exits because the baseline partition only migrates by rows.
 }
 
 std::vector<Mpi2SoaBackend::MigrationAntPOD> Mpi2SoaBackend::pack_outbox(const LocalAntsSoA& outbox) const
@@ -552,10 +557,9 @@ void Mpi2SoaBackend::exchange_migrating_ants()
     m_last_out_up = send_up.size();
     m_last_out_down = send_down.size();
 
-    // Same pattern as halo exchange:
-    // 1) send outbox_up to UP, receive DOWN outbox_up into current rank.
+    // Exchange upward migrants with the down neighbor to receive ants entering from below.
     const std::vector<MigrationAntPOD> recv_from_down = exchange_direction(send_up, m_up_rank, m_down_rank, 300);
-    // 2) send outbox_down to DOWN, receive UP outbox_down into current rank.
+    // Exchange downward migrants with the up neighbor to receive ants entering from above.
     const std::vector<MigrationAntPOD> recv_from_up = exchange_direction(send_down, m_down_rank, m_up_rank, 400);
 
     m_last_in_up = recv_from_up.size();
@@ -571,6 +575,7 @@ void Mpi2SoaBackend::sync_global_state_for_render(WorldState& world)
         return;
     }
 
+    // Gather local ants on root to rebuild a global SoA view for the renderer.
     const int mpi_size = std::max(1, m_size);
     const bool root = mpi_runtime::is_root();
 
@@ -615,6 +620,7 @@ void Mpi2SoaBackend::sync_global_state_for_render(WorldState& world)
                 MPI_BYTE,
                 0, MPI_COMM_WORLD);
 
+    // Gather each rank subgrid on root so rendering uses a coherent global pheromone map.
     const std::size_t local_rows = m_local_phen.local_height();
     const std::size_t w = m_global_w;
     std::vector<double> local_v1(local_rows * w, 0.0);
@@ -720,14 +726,13 @@ bool Mpi2SoaBackend::within_local_plus_halo_global(std::int32_t x, std::int32_t 
         return false;
     }
 
-    // 1D row split: each rank has full X range + left/right halo.
+    // Accept full X plus one halo row above and below because the split is only along Y.
     const std::int32_t x_min = -1;
     const std::int32_t x_max = static_cast<std::int32_t>(m_global_w);
     if (x < x_min || x > x_max) {
         return false;
     }
 
-    // Y range accepts local interior + one halo row above/below.
     const std::int32_t y_min = static_cast<std::int32_t>(m_y0) - 1;
     const std::int32_t y_max = static_cast<std::int32_t>(m_y1); // inclusive halo at m_y1
     return y >= y_min && y <= y_max;
@@ -753,6 +758,7 @@ double Mpi2SoaBackend::phen_read_global(std::int32_t x, std::int32_t y, int chan
         return -1.0;
     }
 
+    // Read global coordinates through the local subgrid plus halo wrapper.
     const LocalCellCoord local = global_to_local_with_halo(x, y);
     if (channel == 0) {
         return m_local_phen.v1(static_cast<std::size_t>(local.lx), static_cast<std::size_t>(local.ly));
@@ -767,6 +773,7 @@ bool Mpi2SoaBackend::mark_pheromone_global(std::int32_t x, std::int32_t y, int c
         return false;
     }
 
+    // Write marks only on owned cells so each rank updates its own interior buffer.
     const LocalCellCoord local = global_to_local(x, y);
 
     const double v1_left = std::max(phen_read_global(x - 1, y, 0), 0.0);
@@ -829,7 +836,7 @@ void Mpi2SoaBackend::maybe_print_partition_debug()
         return;
     }
 
-    // Debug-only line per rank to validate row partition and neighbor assignment.
+    // Emit one debug line per rank to validate the row partition and neighbors.
     std::cerr << "INFO mpi2 partition rank=" << m_rank << "/" << m_size
               << " W=" << m_global_w
               << " H=" << m_global_h
